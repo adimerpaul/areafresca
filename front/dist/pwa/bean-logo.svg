@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 110" role="img" aria-labelledby="title">
+  <title id="title">Bean</title>
+  <rect width="320" height="110" rx="24" fill="#171717"/>
+  <circle cx="55" cy="55" r="36" fill="#f57c00"/>
+  <path d="M42 30c27 3 35 23 22 48-26-3-36-23-22-48Z" fill="#fff"/>
+  <path d="M45 35c7 15 13 26 18 38" fill="none" stroke="#f57c00" stroke-width="5" stroke-linecap="round"/>
+  <text x="104" y="72" font-family="Arial, sans-serif" font-size="55" font-weight="800" fill="#fff">BEAN</text>
+  <rect x="104" y="82" width="164" height="5" rx="2.5" fill="#f57c00"/>
+</svg>
