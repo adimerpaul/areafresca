@@ -1,0 +1,6 @@
+{
+    "require": {
+        "selective/xmldsig": "^2.4",
+        "robrichards/xmlseclibs": "^3.1"
+    }
+}

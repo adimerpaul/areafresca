@@ -139,6 +139,7 @@ const links = [
   { title: 'Por vencer', icon: 'schedule', link: '/productos/por-vencer', can: 'Ver Compras' },
   { title: 'Vencidos', icon: 'event_busy', link: '/productos/vencidos', can: 'Ver Compras' },
   { title: 'Configuración', icon: 'settings', link: '/configuracion', can: 'Gestionar Configuración' },
+  { title: 'Firma digital', icon: 'verified_user', link: '/firma-digital', can: 'Gestionar Configuración' },
 ]
 
 const visibleLinks = computed(() =>

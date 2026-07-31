@@ -1,8 +1,10 @@
 <?php
 
 use App\Http\Controllers\CompraController;
+use App\Http\Controllers\CertificadoDigitalController;
 use App\Http\Controllers\ConfiguracionController;
 use App\Http\Controllers\ProductoController;
+use App\Http\Controllers\SiatTokenController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VentaController;
 use Illuminate\Support\Facades\Route;
@@ -56,4 +58,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/vencimientos', [CompraController::class, 'vencimientos']);
     Route::put('/configuracion', [ConfiguracionController::class, 'update']);
     Route::post('/configuracion/logo', [ConfiguracionController::class, 'uploadLogo']);
+    Route::get('/certificados-digitales', [CertificadoDigitalController::class, 'index']);
+    Route::post('/certificados-digitales', [CertificadoDigitalController::class, 'store']);
+    Route::put('/certificados-digitales/{certificado}/activar', [CertificadoDigitalController::class, 'activate']);
+    Route::delete('/certificados-digitales/{certificado}', [CertificadoDigitalController::class, 'destroy']);
+    Route::get('/siat-tokens', [SiatTokenController::class, 'index']);
+    Route::post('/siat-tokens', [SiatTokenController::class, 'store']);
+    Route::delete('/siat-tokens/{token}', [SiatTokenController::class, 'destroy']);
 });

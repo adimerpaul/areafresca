@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<notaElectronicaConciliacion xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                             xsi:noNamespaceSchemaLocation="notaElectronicaConciliacion.xsd">
+    <cabecera>
+        <nitEmisor>1003579028</nitEmisor>
+        <razonSocialEmisor>ENTEL</razonSocialEmisor>
+        <municipio>La Paz</municipio>
+        <telefono>2846005</telefono>
+        <numeroNotaConciliacion>1</numeroNotaConciliacion>
+        <cuf>44AAEC00DBD34C81AD17D2E3EB9B02EE49C36806A367A75AC82F24C74</cuf>
+        <cufd>BQUE+QytqQUDBKVUFOSVRPQkxVRFZNVFVJBMDAwMDAwM</cufd>
+        <codigoSucursal>0</codigoSucursal>
+        <direccion>AV. JORGE LOPEZ #123</direccion>
+        <codigoPuntoVenta>0</codigoPuntoVenta>
+        <fechaEmision>2021-10-07T09:15:33.679</fechaEmision>
+        <nombreRazonSocial>Mi razon social</nombreRazonSocial>
+        <codigoTipoDocumentoIdentidad>1</codigoTipoDocumentoIdentidad>
+        <numeroDocumento>5115889</numeroDocumento>
+        <complemento xsi:nil="true"/>
+        <codigoCliente>51158891</codigoCliente>
+        <numeroFactura>1</numeroFactura>
+        <numeroAutorizacionCuf>dsa564dsa54d6as5</numeroAutorizacionCuf>
+        <codigoControl>15-dc-00-ea</codigoControl>
+        <fechaEmisionFactura>3919-02-01T10:14:36.000</fechaEmisionFactura>
+        <montoTotalOriginal>775.00</montoTotalOriginal>
+        <montoTotalConciliado>50.00</montoTotalConciliado>
+        <creditoFiscalIva>6.50</creditoFiscalIva>
+        <debitoFiscalIva>0</debitoFiscalIva>
+        <codigoExcepcion xsi:nil="true"/>
+        <leyenda>Ley N° 453: Los servicios deben suministrarse en condiciones de inocuidad, calidad y seguridad</leyenda>
+        <usuario>SAFA21</usuario>
+        <codigoDocumentoSector>29</codigoDocumentoSector>
+    </cabecera>
+    <detalleOriginal>
+        <actividadEconomica>451010</actividadEconomica>
+        <codigoProductoSin>49111</codigoProductoSin>
+        <codigoProducto>123456</codigoProducto>
+        <descripcion>Telefonía Fija</descripcion>
+        <cantidad>1</cantidad>
+        <unidadMedida>1</unidadMedida>
+        <precioUnitario>775.00</precioUnitario>
+        <montoDescuento xsi:nil="true"/>
+        <subTotal>775.00</subTotal>
+    </detalleOriginal>
+    <detalleConciliacion>
+        <actividadEconomica>451010</actividadEconomica>
+        <codigoProductoSin>49111</codigoProductoSin>
+        <codigoProducto>123456</codigoProducto>
+        <descripcion>Telefonía Fija</descripcion>
+        <montoOriginal>775.00</montoOriginal>
+        <montoFinal>725.00</montoFinal>
+        <montoConciliado>50.00</montoConciliado>
+    </detalleConciliacion>
+    <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+        <SignedInfo>
+            <CanonicalizationMethod
+                    Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"></CanonicalizationMethod>
+            <SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"></SignatureMethod>
+            <Reference URI="">
+                <Transforms>
+                    <Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"></Transform>
+                    <Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315#WithComments"></Transform>
+                </Transforms>
+                <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"></DigestMethod>
+                <DigestValue>SkrCqZXZj1IPgpqrX+w4yMT0lCBs5amUkNJ8ykQ+T7k=</DigestValue>
+            </Reference>
+        </SignedInfo>
+        <SignatureValue>
+            itb123fGGhh12DpFDFas34ASDAPpSSSSadasDasAS1smkRsj5ksdjasd8asdkasjd8asdkas8asdk21v
+            a1qf+kBKLwF39mj+5zKo1qf+kBKLD42qD/+yxSMMS6DM5SywPxO1oyjnSZtObIe/45fdS4sE9+aNOn
+            UncYUlSDAPpSSSSadasgIMWwlX2XMJ4SDAPpSSSSadas6qihJt/3dEIdta1RETSDAPpSSSSadas9S2W
+            ALbT3VV8pjLqikVLcSDAPpSSSSadaseCKG8abcdssM0Wm8p+5grNNpSDAPpSSSSadasy4TvT4C3xS
+            70zSbKWeBUUglRcU8FECEcacu+UJaBCgRW0S3Q==
+        </SignatureValue>
+        <KeyInfo>
+            <X509Data>
+                <X509Certificate>
+                    TIIEuzCCZ7OgZIZsdZsDSZDSsdZsdSZSDZSDZKoZIhvcNZQEZBQZgbUxCzZZBgNVBZYTZkZ
+                    TIIEuzCCZ7OgZIZsdZsDSZDSsdZsdSZSDZSDZKoZIhvcNZQEZBQZgbUxCzZZBgNVBZYTZkZ
+                    bnRhbTlsbGZZZ1dVzdG9zLTdvYi5ibzCCZSIDQYZKoZIhvcNZQEBBQZDgasdaACZQoCggEB
+                    TIIEuzCCZ7OgZIZsdZsDSZDSsdZsdSZSDZSDZKoZIhvcNZQEZBQZgbUxCzZZBgNVBZYTZkZ
+                    bnRhbTlsbGZZZ1dVzdG9zLTdvYi5ibzCCZSIDQYZKoZIhvcNZQEBBQZDgasdaACZQoCggEB
+                    TIIEuzCCZ7OgZIZsdZsDSZDSsdZsdSZSDZSDZKoZIhvcNZQEZBQZgbUxCzZZBgNVBZYTZkZ
+                    bnRhbTlsbGZZZ1dVzdG9zLTdvYi5ibzCCZSIDQYZKoZIhvcNZQEBBQZDgasdaACZQoCggEB
+                    k/IsZZEBEETRTEQYDVQQZEoxTDZzNTc5TDI4TTITZYZKoZIhvcNZQkBZiNhcT5vbGQucXVp
+                    bnRhbTlsbGZZZ1dVzdG9zLTdvYi5ibzCCZSIDQYZKoZIhvcNZQEBBQZDgasdaACZQoCggEB
+                    bnRhbTlsbGZZZ1dVzdG9zLTdvYi5ibzCCZSIDQYZKoZIhvcNZQEBBQZDgasdaACZQoCggEB
+                    kTIh+T9dIRZ9GghiSZbP2Zk082ycgic2ZepdZLu7p2LEUZUhTXSXGZQkO4o/ZNZZk0ZQKgi
+                    bnRhbTlsbGZZZ1dVzdG9zLTdvYi5ibzCCZSIDQYZKoZIhvcNZQEBBQZDgasdaACZQoCggEB
+                    V8ZVyTkIDRCTcBYZO4ZZ8oV1UTbQEiDZZOYTZDHT2ZRy+kS+OzCdpZZKZZyds0ZClCZRlTg
+                    bnRhbTlsbGZZZ1dVzdG9zLTdvYi5ibzCCZSIDQYZKoZIhvcNZQEBBQZDgasdaACZQoCggEB
+                    Z1UdDQEZIE8DZuBgNVHREEZzZlhiNhcT5vZZZXVpbnRhbTlsbGZZZ1dVzdG9zLTdvYi5i7Z
+                    bzBRBgNVHR8ESZBITEZgRKBChkBodHRczovL2Rlc2ZycT9sbG8uYRzZIuZ29iLTZvL2Rlc2
+                    bnRhbTlsbGZZZ1dVzdG9zLTdvYi5ibzCCZSIDQYZKoZIhvcNZQEBBQZDgasdaACZQoCggEB
+                    NRrZKQl3YhKZKRSZyeegVZIiXlYeEyOe5qdn3XdyTCDkz4bTn02KbcsnZP7oVTqsodBSd0B
+                    ptrxqoqeZHhGBzEl5/vxDS/Sx4eO7ZXd1T4HtZntETdsZXZuPZZt4Vr57R/hqdZeTkk7uO9
+                    bnRhbTlsbGZZZ1dVzdG9zLTdvYi5ibzCCZSIDQYZKoZIhvcNZQEBBQZDgasdaACZQoCggEB
+                    YB+PC1LO7gnh4Zz9UsYb0YBG
+                </X509Certificate>
+            </X509Data>
+        </KeyInfo>
+    </Signature>
+</notaElectronicaConciliacion>

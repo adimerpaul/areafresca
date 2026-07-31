@@ -16,6 +16,7 @@ const routes = [
       { path: 'compras/nueva', component: () => import('pages/compras/NuevaPage.vue') },
       { path: 'proveedores', component: () => import('pages/proveedores/IndexPage.vue') },
       { path: 'configuracion', component: () => import('pages/configuracion/IndexPage.vue') },
+      { path: 'firma-digital', component: () => import('pages/configuracion/FirmaDigitalPage.vue') },
       { path: 'productos/por-vencer', component: () => import('pages/compras/VencimientosPage.vue'), props: { estado: 'por_vencer' } },
       { path: 'productos/vencidos', component: () => import('pages/compras/VencimientosPage.vue'), props: { estado: 'vencido' } }
     ]
