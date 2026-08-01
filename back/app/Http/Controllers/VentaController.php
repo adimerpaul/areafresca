@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Exports\VentasExport;
 use App\Models\Producto;
+use App\Models\Cliente;
 use App\Models\Lote;
 use App\Models\User;
 use App\Models\Venta;
@@ -11,6 +12,8 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Facades\Excel;
+use App\Services\Siat\ElectronicInvoiceService;
+use App\Services\Siat\SiatService;
 
 class VentaController extends Controller
 {
@@ -106,7 +109,36 @@ class VentaController extends Controller
         return response()->json($venta->load('detalles'));
     }
 
-    public function store(Request $request)
+    public function siatStatus(Request $request, SiatService $siat)
+    {
+        $this->authorizeAction($request, 'Ver Ventas');
+
+        return response()->json($siat->status());
+    }
+
+    public function siatCancellationReasons(Request $request, SiatService $siat)
+    {
+        $this->authorizeAction($request, 'Ver Ventas');
+
+        return response()->json($siat->cancellationReasons());
+    }
+
+    public function verifyTaxes(Request $request, Venta $venta, SiatService $siat)
+    {
+        $this->authorizeAction($request, 'Ver Ventas');
+
+        return response()->json($siat->verifyInvoice($venta));
+    }
+
+    public function cancelTaxes(Request $request, Venta $venta, SiatService $siat)
+    {
+        $this->authorizeAction($request, 'Anular Ventas');
+        $data = $request->validate(['codigo_motivo' => ['required', 'integer', 'min:1']]);
+
+        return response()->json($siat->cancelInvoice($venta, (int) $data['codigo_motivo']));
+    }
+
+    public function store(Request $request, ElectronicInvoiceService $invoices)
     {
         $this->authorizeAction($request, 'Crear Ventas');
         $data = $request->validate([
@@ -115,11 +147,19 @@ class VentaController extends Controller
             'monto_efectivo' => ['nullable', 'numeric', 'min:0'],
             'monto_qr' => ['nullable', 'numeric', 'min:0'],
             'observacion' => ['nullable', 'string', 'max:1000'],
+            'tipo_documento' => ['nullable', 'in:CI,NIT'],
+            'numero_documento' => ['nullable', 'string', 'max:30'],
+            'complemento' => ['nullable', 'string', 'max:10'],
+            'cliente_nombre' => ['nullable', 'string', 'max:255'],
+            'cliente_email' => ['nullable', 'email', 'max:255'],
+            'cliente_telefono' => ['nullable', 'string', 'max:80'],
+            'cliente_direccion' => ['nullable', 'string', 'max:255'],
             'detalles' => ['required', 'array', 'min:1'],
             'detalles.*.producto_id' => ['required', 'integer', 'exists:productos,id'],
             'detalles.*.cantidad' => ['required', 'numeric', 'min:0.001', 'decimal:0,3'],
             'detalles.*.precio_venta' => ['required', 'numeric', 'min:0'],
         ]);
+        abort_if((trim((string) ($data['numero_documento'] ?? '0')) ?: '0') !== '0' && empty($data['cliente_nombre']), 422, 'El nombre o razón social del cliente es obligatorio');
 
         $venta = DB::transaction(function () use ($request, $data) {
             $items = [];
@@ -127,7 +167,6 @@ class VentaController extends Controller
             foreach ($data['detalles'] as $detail) {
                 $product = Producto::lockForUpdate()->findOrFail($detail['producto_id']);
                 $quantity = round((float) $detail['cantidad'], 3);
-                abort_if((float) $product->stock_inicial + 0.0001 < $quantity, 422, "Stock insuficiente para {$product->nombre}");
                 $salePrice = round((float) $detail['precio_venta'], 4);
                 $lineSubtotal = round($salePrice * $quantity, 2);
                 $subtotal += $lineSubtotal;
@@ -141,8 +180,24 @@ class VentaController extends Controller
             $qr = $data['tipo_pago'] === 'QR' ? $total : round((float) ($data['monto_qr'] ?? 0), 2);
             abort_if(abs(($cash + $qr) - $total) > 0.009, 422, 'Los montos de efectivo y QR deben sumar el total de la venta');
 
+            $documentNumber = trim((string) ($data['numero_documento'] ?? '0')) ?: '0';
+            $client = null;
+            if ($documentNumber !== '0') {
+                $client = Cliente::updateOrCreate(
+                    ['tipo_documento' => $data['tipo_documento'] ?? 'CI', 'numero_documento' => $documentNumber],
+                    [
+                        'complemento' => $data['complemento'] ?? null,
+                        'nombre' => $data['cliente_nombre'],
+                        'email' => $data['cliente_email'] ?? null,
+                        'telefono' => $data['cliente_telefono'] ?? null,
+                        'direccion' => $data['cliente_direccion'] ?? null,
+                    ]
+                );
+            }
+
             $sale = Venta::create([
                 'user_id' => $request->user()->id,
+                'cliente_id' => $client?->id,
                 'usuario_nombre' => $request->user()->name,
                 'subtotal' => $subtotal,
                 'descuento' => $discount,
@@ -153,6 +208,12 @@ class VentaController extends Controller
                 'estado' => 'COMPLETADA',
                 'observacion' => $data['observacion'] ?? null,
                 'fecha' => now(),
+                'tipo_documento' => $data['tipo_documento'] ?? 'CI',
+                'numero_documento' => $documentNumber,
+                'complemento' => $data['complemento'] ?? null,
+                'cliente_nombre' => $data['cliente_nombre'] ?? null,
+                'cliente_email' => $data['cliente_email'] ?? null,
+                'tipo_comprobante' => $documentNumber === '0' ? 'RECIBO' : 'FACTURA',
             ]);
             $sale->update(['numero' => 'V-'.str_pad((string) $sale->id, 8, '0', STR_PAD_LEFT)]);
 
@@ -177,8 +238,11 @@ class VentaController extends Controller
                     'descuento' => $lineDiscount,
                     'total' => $lineSubtotal - $lineDiscount,
                 ]);
-                $product->decrement('stock_inicial', $quantity);
-                $remaining = $quantity;
+                $stockToDeduct = min($quantity, max(0, (float) $product->stock_inicial));
+                if ($stockToDeduct > 0) {
+                    $product->decrement('stock_inicial', $stockToDeduct);
+                }
+                $remaining = $stockToDeduct;
                 $lots = Lote::where('producto_id', $product->id)
                     ->where('cantidad_disponible', '>', 0)
                     ->orderByRaw('fecha_vencimiento IS NULL')
@@ -200,7 +264,9 @@ class VentaController extends Controller
             return $sale;
         });
 
-        return response()->json($venta->load('detalles'), 201);
+        $venta->load(['detalles', 'cliente']);
+        if ($venta->tipo_comprobante === 'FACTURA') $venta = $invoices->issue($venta)->load(['detalles', 'cliente']);
+        return response()->json($venta, 201);
     }
 
     private function filteredQuery(Request $request)

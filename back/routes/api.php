@@ -2,7 +2,9 @@
 
 use App\Http\Controllers\CompraController;
 use App\Http\Controllers\CertificadoDigitalController;
+use App\Http\Controllers\ClienteController;
 use App\Http\Controllers\ConfiguracionController;
+use App\Http\Controllers\CorreoPruebaController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\SiatTokenController;
 use App\Http\Controllers\UserController;
@@ -11,6 +13,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [UserController::class, 'login']);
 Route::get('/configuracion', [ConfiguracionController::class, 'show']);
+Route::get('/correo-prueba', [CorreoPruebaController::class, 'enviar']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [UserController::class, 'me']);
@@ -40,11 +43,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/productos/{producto}', [ProductoController::class, 'destroy']);
 
     Route::get('/ventas', [VentaController::class, 'index']);
+    Route::get('/clientes/buscar', [ClienteController::class, 'search']);
     Route::post('/ventas', [VentaController::class, 'store']);
     Route::get('/ventas-resumen', [VentaController::class, 'summary']);
     Route::get('/dashboard', [VentaController::class, 'dashboard']);
     Route::get('/ventas-exportar/excel', [VentaController::class, 'exportExcel']);
     Route::get('/ventas-exportar/pdf', [VentaController::class, 'exportPdf']);
+    Route::get('/siat/estado', [VentaController::class, 'siatStatus']);
+    Route::get('/siat/motivos-anulacion', [VentaController::class, 'siatCancellationReasons']);
+    Route::get('/ventas/{venta}/verificar-impuestos', [VentaController::class, 'verifyTaxes']);
+    Route::post('/ventas/{venta}/anular-impuestos', [VentaController::class, 'cancelTaxes']);
     Route::get('/ventas/{venta}', [VentaController::class, 'show']);
     Route::put('/ventas/{venta}/anular', [VentaController::class, 'cancel']);
 
