@@ -7,6 +7,7 @@ use DOMDocument; use RuntimeException; use SoapClient;
 class ElectronicInvoiceService {
     public function __construct(private CufGenerator $cuf, private XmlSigner $signer, private SiatService $siat) {}
     public function issue(Venta $sale): Venta {
+        error_log('[SIAT] Inicio emisión: '.json_encode(['venta_id'=>$sale->id,'numero'=>$sale->numero,'total'=>$sale->total], JSON_UNESCAPED_UNICODE));
         try {
             $company=Configuracion::first(); $token=SiatToken::where('vence_en','>',now())->latest()->first();
             $cert=CertificadoDigital::where('activo',true)->where('valido_hasta','>',now())->latest()->first();
@@ -18,13 +19,15 @@ class ElectronicInvoiceService {
             $cuf=$this->cuf->generate($company->nit,$stamp,config('siat.sucursal'),config('siat.modalidad'),1,$sale->id,config('siat.punto_venta'),$cufd->codigo_control);
             $xml=$this->buildXml($sale,$company,$cufd->codigo,$cuf,$date,$activity,$productCode); $signed=$this->signer->sign($xml,$cert->clave_privada_cifrada,$cert->certificado_pem);
             $path="impuestos/facturas/{$sale->id}.xml"; \Storage::disk('local')->put($path,$signed);
+            error_log('[SIAT] XML generado y firmado: '.json_encode(['venta_id'=>$sale->id,'xml_path'=>$path,'xml_sha256'=>hash('sha256',$signed)], JSON_UNESCAPED_UNICODE));
             $sale->update(['cuf'=>$cuf,'cufd'=>$cufd->codigo,'xml_path'=>$path,'fecha_emision_siat'=>$date,'estado_siat'=>config('siat.enabled')?'ENVIANDO':'PENDIENTE_CONFIGURACION','siat_mensaje'=>config('siat.enabled')?null:'SIAT_ENABLED está desactivado']);
             if(!config('siat.enabled')) return $sale->fresh();
             if(!class_exists(SoapClient::class)) throw new RuntimeException('La extensión PHP SOAP no está habilitada');
-            $gz=gzencode($signed,9); $client=new SoapClient(config('siat.wsdl'),['stream_context'=>stream_context_create(['http'=>['header'=>'apikey: TokenApi '.$token->token_cifrado]]),'cache_wsdl'=>WSDL_CACHE_NONE,'trace'=>1]);
+            $gz=gzencode($signed,9); error_log('[SIAT] Enviando factura a Impuestos: '.json_encode(['venta_id'=>$sale->id,'archivo_bytes'=>strlen($gz),'hash_archivo'=>hash('sha256',$gz)], JSON_UNESCAPED_UNICODE)); $client=new SoapClient(config('siat.wsdl'),['stream_context'=>stream_context_create(['http'=>['header'=>'apikey: TokenApi '.$token->token_cifrado]]),'cache_wsdl'=>WSDL_CACHE_NONE,'trace'=>1]);
             $result=$client->recepcionFactura(['SolicitudServicioRecepcionFactura'=>['codigoAmbiente'=>config('siat.ambiente'),'codigoDocumentoSector'=>1,'codigoEmision'=>1,'codigoModalidad'=>config('siat.modalidad'),'codigoPuntoVenta'=>config('siat.punto_venta'),'codigoSistema'=>config('siat.codigo_sistema'),'codigoSucursal'=>config('siat.sucursal'),'cufd'=>$cufd->codigo,'cuis'=>$cuis->codigo,'nit'=>$company->nit,'tipoFacturaDocumento'=>1,'archivo'=>$gz,'fechaEnvio'=>$date->format('Y-m-d\TH:i:s.v'),'hashArchivo'=>hash('sha256',$gz)]]);
             $response=$result->RespuestaServicioFacturacion??$result; $code=$response->codigoEstado??null; $sale->update(['estado_siat'=>$code==908?'VALIDADA':'OBSERVADA','codigo_recepcion'=>$response->codigoRecepcion??null,'siat_mensaje'=>$response->mensajesList?->descripcion??null]);
-        } catch (\Throwable $e) { $sale->update(['estado_siat'=>'PENDIENTE_EVENTO','siat_mensaje'=>$e->getMessage()]); report($e); }
+            error_log('[SIAT] Emisión finalizada: '.json_encode(['venta_id'=>$sale->id,'codigo_estado'=>$code,'estado_siat'=>$code==908?'VALIDADA':'OBSERVADA','codigo_recepcion'=>$response->codigoRecepcion??null,'mensaje'=>$response->mensajesList?->descripcion??null], JSON_UNESCAPED_UNICODE));
+        } catch (\Throwable $e) { error_log('[SIAT] ERROR emisión: '.json_encode(['venta_id'=>$sale->id,'estado'=>'PENDIENTE_EVENTO','error'=>$e->getMessage(),'tipo'=>$e::class], JSON_UNESCAPED_UNICODE)); $sale->update(['estado_siat'=>'PENDIENTE_EVENTO','siat_mensaje'=>$e->getMessage()]); report($e); }
         return $sale->fresh();
     }
     private function buildXml(Venta $sale, Configuracion $company, string $cufd, string $cuf, $date, string $activity, int $productCode): string {

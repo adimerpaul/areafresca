@@ -11,21 +11,27 @@ class SiatService
     public function ensureCredentials(): array
     {
         $cuis = SiatCuis::where('vence_en', '>', now()->addMinutes(5))->latest()->first();
+        error_log('[SIAT] Verificando credenciales locales: '.json_encode(['cuis_local_vigente'=>(bool)$cuis,'sucursal'=>config('siat.sucursal'),'punto_venta'=>config('siat.punto_venta')], JSON_UNESCAPED_UNICODE));
         if (! $cuis) {
+            error_log('[SIAT] No existe CUIS local; solicitando CUIS al SIN');
             $response = $this->call('FacturacionCodigos', 'cuis', 'RespuestaCuis', [
                 'SolicitudCuis' => $this->baseRequest(false),
             ]);
-            $this->assertTransaction($response, 'No se pudo obtener el CUIS');
+            if (empty($response->codigo) || empty($response->fechaVigencia)) {
+                $this->assertTransaction($response, 'SIAT no devolvió los datos del CUIS');
+            }
             $cuis = SiatCuis::create([
                 'codigo' => $response->codigo,
                 'vence_en' => $response->fechaVigencia,
                 'sucursal' => config('siat.sucursal'),
                 'punto_venta' => config('siat.punto_venta'),
             ]);
+            error_log('[SIAT] CUIS obtenido y guardado: '.json_encode(['cuis_id'=>$cuis->id,'vence_en'=>$cuis->vence_en], JSON_UNESCAPED_UNICODE));
         }
 
         $cufd = SiatCufd::where('vence_en', '>', now()->addMinutes(5))->latest()->first();
         if (! $cufd) {
+            error_log('[SIAT] No existe CUFD local; solicitando CUFD al SIN: '.json_encode(['cuis_id'=>$cuis->id], JSON_UNESCAPED_UNICODE));
             $response = $this->call('FacturacionCodigos', 'cufd', 'RespuestaCufd', [
                 'SolicitudCufd' => $this->baseRequest(true, $cuis->codigo),
             ]);
@@ -38,9 +44,61 @@ class SiatService
                 'sucursal' => config('siat.sucursal'),
                 'punto_venta' => config('siat.punto_venta'),
             ]);
+            error_log('[SIAT] CUFD obtenido y guardado: '.json_encode(['cufd_id'=>$cufd->id,'vence_en'=>$cufd->vence_en], JSON_UNESCAPED_UNICODE));
         }
 
         return [$cuis, $cufd];
+    }
+
+    public function localCredentialsStatus(): array
+    {
+        $cuis = SiatCuis::where('vence_en', '>', now()->addMinutes(5))->latest()->first();
+        $cufd = SiatCufd::where('vence_en', '>', now()->addMinutes(5))->latest()->first();
+
+        return [
+            'cuis' => $cuis ? ['id' => $cuis->id, 'vence_en' => $cuis->vence_en] : null,
+            'cufd' => $cufd ? ['id' => $cufd->id, 'vence_en' => $cufd->vence_en, 'direccion' => $cufd->direccion] : null,
+        ];
+    }
+
+    public function createCuis(): SiatCuis
+    {
+        $current = SiatCuis::where('vence_en', '>', now()->addMinutes(5))->latest()->first();
+        if ($current) return $current;
+        error_log('[SIAT] Creación manual de CUIS solicitada');
+        $response = $this->call('FacturacionCodigos', 'cuis', 'RespuestaCuis', [
+            'SolicitudCuis' => $this->baseRequest(false),
+        ]);
+        if (empty($response->codigo) || empty($response->fechaVigencia)) {
+            $this->assertTransaction($response, 'SIAT no devolvió los datos del CUIS');
+        }
+        if (! ($response->transaccion ?? false)) {
+            error_log('[SIAT] CUIS existente recuperado; se guardará localmente: '.json_encode(['mensaje'=>$this->message($response),'vence_en'=>$response->fechaVigencia], JSON_UNESCAPED_UNICODE));
+        }
+
+        return SiatCuis::create([
+            'codigo' => $response->codigo, 'vence_en' => $response->fechaVigencia,
+            'sucursal' => config('siat.sucursal'), 'punto_venta' => config('siat.punto_venta'),
+        ]);
+    }
+
+    public function createCufd(): SiatCufd
+    {
+        $current = SiatCufd::where('vence_en', '>', now()->addMinutes(5))->latest()->first();
+        if ($current) return $current;
+        $cuis = SiatCuis::where('vence_en', '>', now()->addMinutes(5))->latest()->first();
+        if (! $cuis) throw new RuntimeException('No hay CUIS vigente. Genere primero el CUIS.');
+        error_log('[SIAT] Creación manual de CUFD solicitada: '.json_encode(['cuis_id'=>$cuis->id], JSON_UNESCAPED_UNICODE));
+        $response = $this->call('FacturacionCodigos', 'cufd', 'RespuestaCufd', [
+            'SolicitudCufd' => $this->baseRequest(true, $cuis->codigo),
+        ]);
+        $this->assertTransaction($response, 'No se pudo obtener el CUFD');
+
+        return SiatCufd::create([
+            'codigo' => $response->codigo, 'codigo_control' => $response->codigoControl,
+            'direccion' => $response->direccion ?? null, 'vence_en' => $response->fechaVigencia,
+            'sucursal' => config('siat.sucursal'), 'punto_venta' => config('siat.punto_venta'),
+        ]);
     }
 
     public function status(): array
@@ -145,12 +203,20 @@ class SiatService
         if (! class_exists(SoapClient::class)) throw new RuntimeException('La extensión PHP SOAP no está habilitada');
         $token = SiatToken::where('vence_en', '>', now())->latest()->first();
         if (! $token) throw new RuntimeException('No existe un token SIAT vigente');
-        $client = new SoapClient(config('siat.base_url').$service.'?wsdl', [
-            'stream_context' => stream_context_create(['http' => ['header' => 'apikey: TokenApi '.$token->token_cifrado]]),
-            'cache_wsdl' => WSDL_CACHE_NONE, 'trace' => true, 'exceptions' => true,
-        ]);
-        $result = $client->{$method}($payload);
-        return $result->{$responseKey} ?? $result->return ?? $result;
+        error_log('[SIAT] Iniciando SOAP: '.json_encode(['servicio'=>$service,'operacion'=>$method,'ambiente'=>config('siat.ambiente'),'token_id'=>$token->id,'sucursal'=>config('siat.sucursal'),'punto_venta'=>config('siat.punto_venta')], JSON_UNESCAPED_UNICODE));
+        try {
+            $client = new SoapClient(config('siat.base_url').$service.'?wsdl', [
+                'stream_context' => stream_context_create(['http' => ['header' => 'apikey: TokenApi '.$token->token_cifrado]]),
+                'cache_wsdl' => WSDL_CACHE_NONE, 'trace' => true, 'exceptions' => true,
+            ]);
+            $result = $client->{$method}($payload);
+            $response = $result->{$responseKey} ?? $result->return ?? $result;
+            error_log('[SIAT] Respuesta SOAP: '.json_encode(['servicio'=>$service,'operacion'=>$method,'transaccion'=>$response->transaccion??null,'codigo_estado'=>$response->codigoEstado??null,'codigo_recepcion'=>$response->codigoRecepcion??null,'mensaje'=>$this->responseDescription($response)], JSON_UNESCAPED_UNICODE));
+            return $response;
+        } catch (\Throwable $exception) {
+            error_log('[SIAT] ERROR SOAP: '.json_encode(['servicio'=>$service,'operacion'=>$method,'error'=>$exception->getMessage(),'tipo'=>$exception::class], JSON_UNESCAPED_UNICODE));
+            throw $exception;
+        }
     }
 
     private function assertTransaction(object $response, string $fallback): void

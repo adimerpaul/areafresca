@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\SiatToken;
+use App\Services\Siat\SiatService;
 use Illuminate\Http\Request;
 
 class SiatTokenController extends Controller
@@ -38,6 +39,34 @@ class SiatTokenController extends Controller
         $this->authorizeAccess($request);
         $token->delete();
         return response()->noContent();
+    }
+
+    public function credentials(Request $request, SiatService $siat)
+    {
+        $this->authorizeAccess($request);
+        return response()->json($siat->localCredentialsStatus());
+    }
+
+    public function createCuis(Request $request, SiatService $siat)
+    {
+        $this->authorizeAccess($request);
+        try {
+            $siat->createCuis();
+            return response()->json(['message' => 'CUIS generado correctamente', 'credentials' => $siat->localCredentialsStatus()], 201);
+        } catch (\Throwable $exception) {
+            abort(422, $exception->getMessage());
+        }
+    }
+
+    public function createCufd(Request $request, SiatService $siat)
+    {
+        $this->authorizeAccess($request);
+        try {
+            $siat->createCufd();
+            return response()->json(['message' => 'CUFD generado correctamente', 'credentials' => $siat->localCredentialsStatus()], 201);
+        } catch (\Throwable $exception) {
+            abort(422, $exception->getMessage());
+        }
     }
 
     private function base64UrlDecode(string $value): string

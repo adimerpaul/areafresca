@@ -138,8 +138,9 @@ class VentaController extends Controller
         return response()->json($siat->cancelInvoice($venta, (int) $data['codigo_motivo']));
     }
 
-    public function store(Request $request, ElectronicInvoiceService $invoices)
+    public function store(Request $request, ElectronicInvoiceService $invoices, SiatService $siat)
     {
+        error_log('[VENTA][STORE] Inicio: '.json_encode(['usuario_id'=>$request->user()?->id,'cantidad_detalles'=>count($request->input('detalles',[])),'numero_documento'=>$request->input('numero_documento','0')], JSON_UNESCAPED_UNICODE));
         $this->authorizeAction($request, 'Crear Ventas');
         $data = $request->validate([
             'descuento' => ['nullable', 'numeric', 'min:0'],
@@ -159,7 +160,16 @@ class VentaController extends Controller
             'detalles.*.cantidad' => ['required', 'numeric', 'min:0.001', 'decimal:0,3'],
             'detalles.*.precio_venta' => ['required', 'numeric', 'min:0'],
         ]);
-        abort_if((trim((string) ($data['numero_documento'] ?? '0')) ?: '0') !== '0' && empty($data['cliente_nombre']), 422, 'El nombre o razón social del cliente es obligatorio');
+        $requestedDocument = trim((string) ($data['numero_documento'] ?? '0')) ?: '0';
+        abort_if($requestedDocument !== '0' && empty($data['cliente_nombre']), 422, 'El nombre o razón social del cliente es obligatorio');
+        if ($requestedDocument !== '0') {
+            $credentials = $siat->localCredentialsStatus();
+            $missing = array_values(array_filter([
+                $credentials['cuis'] ? null : 'CUIS',
+                $credentials['cufd'] ? null : 'CUFD',
+            ]));
+            abort_if($missing, 422, 'No hay '.implode(' ni ', $missing).' vigentes. Genérelos en Firma digital antes de emitir una factura.');
+        }
 
         $venta = DB::transaction(function () use ($request, $data) {
             $items = [];
@@ -265,7 +275,14 @@ class VentaController extends Controller
         });
 
         $venta->load(['detalles', 'cliente']);
-        if ($venta->tipo_comprobante === 'FACTURA') $venta = $invoices->issue($venta)->load(['detalles', 'cliente']);
+        error_log('[VENTA][STORE] Venta guardada: '.json_encode(['venta_id'=>$venta->id,'numero'=>$venta->numero,'tipo_comprobante'=>$venta->tipo_comprobante,'total'=>$venta->total], JSON_UNESCAPED_UNICODE));
+        if ($venta->tipo_comprobante === 'FACTURA') {
+            error_log('[VENTA][STORE] Enviando venta a facturación electrónica: '.$venta->id);
+            $venta = $invoices->issue($venta)->load(['detalles', 'cliente']);
+        } else {
+            error_log('[VENTA][STORE] No se envía a SIAT porque es recibo: '.$venta->id);
+        }
+        error_log('[VENTA][STORE] Fin: '.json_encode(['venta_id'=>$venta->id,'estado_siat'=>$venta->estado_siat,'mensaje_siat'=>$venta->siat_mensaje], JSON_UNESCAPED_UNICODE));
         return response()->json($venta, 201);
     }
 

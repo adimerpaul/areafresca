@@ -71,6 +71,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/certificados-digitales/{certificado}/activar', [CertificadoDigitalController::class, 'activate']);
     Route::delete('/certificados-digitales/{certificado}', [CertificadoDigitalController::class, 'destroy']);
     Route::get('/siat-tokens', [SiatTokenController::class, 'index']);
+    Route::get('/siat-credenciales', [SiatTokenController::class, 'credentials']);
+    Route::post('/siat-cuis', [SiatTokenController::class, 'createCuis']);
+    Route::post('/siat-cufd', [SiatTokenController::class, 'createCufd']);
     Route::post('/siat-tokens', [SiatTokenController::class, 'store']);
     Route::delete('/siat-tokens/{token}', [SiatTokenController::class, 'destroy']);
 });
