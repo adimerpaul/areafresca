@@ -2,32 +2,67 @@
 
 namespace App\Http\Controllers;
 
+use App\Exports\ProductosExport;
 use App\Models\Categoria;
 use App\Models\Producto;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\Rule;
+use Maatwebsite\Excel\Facades\Excel;
 
 class ProductoController extends Controller
 {
     public function index(Request $request)
     {
         $this->authorizeAction($request, 'Ver Productos');
-        $query = Producto::with('categoriaRelacion:id,nombre,color')->orderBy('nombre');
+        $query = $this->filteredQuery($request)->with('categoriaRelacion:id,nombre,color');
 
+        $perPage = (int) $request->input('per_page', 20);
+
+        return response()->json($query->paginate($perPage === 0 ? 500 : min(max($perPage, 1), 500)));
+    }
+
+    public function exportExcel(Request $request)
+    {
+        $this->authorizeAction($request, 'Ver Productos');
+
+        return Excel::download(new ProductosExport($this->filteredQuery($request)->with('categoriaRelacion:id,nombre')->get()), 'productos.xlsx');
+    }
+
+    public function exportPdf(Request $request)
+    {
+        $this->authorizeAction($request, 'Ver Productos');
+        $products = $this->filteredQuery($request)->with('categoriaRelacion:id,nombre')->get();
+
+        return Pdf::loadView('exports.productos', compact('products'))->setPaper('letter', 'landscape')->download('productos.pdf');
+    }
+
+    private function filteredQuery(Request $request)
+    {
+        $query = Producto::query();
         if ($search = trim((string) $request->input('q'))) {
             $query->where(fn ($q) => $q->where('codigo', 'like', "%{$search}%")
                 ->orWhere('nombre', 'like', "%{$search}%")
                 ->orWhere('codigo_barras', 'like', "%{$search}%")
                 ->orWhere('categoria', 'like', "%{$search}%"));
         }
-        if ($categoriaId = $request->integer('categoria_id')) {
-            $query->where('categoria_id', $categoriaId);
-        }
+        if ($categoriaId = $request->integer('categoria_id')) $query->where('categoria_id', $categoriaId);
+        if ($unidad = trim((string) $request->input('unidad'))) $query->where('unidad', $unidad);
+        if ($request->filled('stock_min')) $query->where('stock_inicial', '>=', (float) $request->input('stock_min'));
+        if ($request->filled('stock_max')) $query->where('stock_inicial', '<=', (float) $request->input('stock_max'));
+        if ($request->input('estado_stock') === 'sin_stock') $query->where('stock_inicial', '<=', 0);
+        elseif ($request->input('estado_stock') === 'bajo') $query->where('stock_inicial', '>', 0)->where('stock_inicial', '<=', 10);
+        elseif ($request->input('estado_stock') === 'disponible') $query->where('stock_inicial', '>', 10);
 
-        $perPage = (int) $request->input('per_page', 20);
-
-        return response()->json($query->paginate($perPage === 0 ? 500 : min(max($perPage, 1), 500)));
+        return match ($request->input('orden')) {
+            'stock_desc' => $query->orderByDesc('stock_inicial'),
+            'stock_asc' => $query->orderBy('stock_inicial'),
+            'precio_desc' => $query->orderByDesc('precio_venta'),
+            'precio_asc' => $query->orderBy('precio_venta'),
+            'nombre_desc' => $query->orderByDesc('nombre'),
+            default => $query->orderBy('nombre'),
+        };
     }
 
     public function catalogos(Request $request)
