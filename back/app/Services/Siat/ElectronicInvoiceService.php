@@ -79,6 +79,8 @@ class ElectronicInvoiceService
                 $certificate->certificado_pem,
             );
 
+            $this->validateSignedXml($signedXml);
+
             $xmlPath = "impuestos/facturas/{$sale->id}.xml";
             Storage::disk('local')->put($xmlPath, $signedXml);
 
@@ -169,7 +171,10 @@ class ElectronicInvoiceService
                 ],
             ]),
             'cache_wsdl' => WSDL_CACHE_NONE,
+            'compression' => SOAP_COMPRESSION_ACCEPT | SOAP_COMPRESSION_GZIP | SOAP_COMPRESSION_DEFLATE,
             'trace' => true,
+            'use' => SOAP_LITERAL,
+            'style' => SOAP_DOCUMENT,
         ]);
 
         $request = [
@@ -275,14 +280,19 @@ class ElectronicInvoiceService
             'nombreRazonSocial' => $sale->cliente_nombre ?: 'SIN NOMBRE',
             'codigoTipoDocumentoIdentidad' => $sale->tipo_documento === 'NIT' ? 5 : 1,
             'numeroDocumento' => $sale->numero_documento,
+            'complemento' => $sale->complemento ?: null,
             'codigoCliente' => $sale->numero_documento,
             'codigoMetodoPago' => 1,
+            'numeroTarjeta' => null,
             'montoTotal' => $sale->total,
             'montoTotalSujetoIva' => $sale->total,
             'codigoMoneda' => 1,
             'tipoCambio' => 1,
             'montoTotalMoneda' => $sale->total,
+            'montoGiftCard' => null,
             'descuentoAdicional' => $sale->descuento,
+            'codigoExcepcion' => null,
+            'cafc' => null,
             'leyenda' => config('siat.leyenda'),
             'usuario' => $sale->usuario_nombre,
             'codigoDocumentoSector' => 1,
@@ -302,6 +312,8 @@ class ElectronicInvoiceService
                 'precioUnitario' => $item->precio_venta,
                 'montoDescuento' => $item->descuento,
                 'subTotal' => $item->total,
+                'numeroSerie' => null,
+                'numeroImei' => null,
             ];
 
             $this->appendFields($document, $detail, $detailFields);
@@ -313,6 +325,18 @@ class ElectronicInvoiceService
     private function appendFields(DOMDocument $document, \DOMElement $parent, array $fields): void
     {
         foreach ($fields as $name => $value) {
+            if ($value === null) {
+                $element = $document->createElement($name);
+                $element->setAttributeNS(
+                    'http://www.w3.org/2001/XMLSchema-instance',
+                    'xsi:nil',
+                    'true',
+                );
+                $parent->appendChild($element);
+
+                continue;
+            }
+
             $parent->appendChild(
                 $document->createElement(
                     $name,
@@ -320,6 +344,36 @@ class ElectronicInvoiceService
                 ),
             );
         }
+    }
+
+    private function validateSignedXml(string $xml): void
+    {
+        $schemaPath = resource_path('siat/facturaElectronicaCompraVenta.xsd');
+
+        if (! is_file($schemaPath)) {
+            throw new RuntimeException("No se encontró el esquema XSD: {$schemaPath}");
+        }
+
+        $previousSetting = libxml_use_internal_errors(true);
+        libxml_clear_errors();
+
+        $document = new DOMDocument;
+        $loaded = $document->loadXML($xml, LIBXML_NONET);
+        $valid = $loaded && $document->schemaValidate($schemaPath);
+
+        $errors = array_map(
+            fn ($error) => trim($error->message).' (línea '.$error->line.')',
+            libxml_get_errors(),
+        );
+
+        libxml_clear_errors();
+        libxml_use_internal_errors($previousSetting);
+
+        if (! $valid) {
+            throw new RuntimeException('XML inválido según XSD: '.implode('; ', $errors));
+        }
+
+        $this->log('XML validado correctamente contra el XSD');
     }
 
     private function responseMessage(object $response): ?string
