@@ -6,7 +6,9 @@ use App\Services\InvoiceDeliveryService;
 use App\Models\CertificadoDigital;
 use App\Models\Configuracion;
 use App\Models\SiatToken;
+use App\Models\SiatCufd;
 use App\Models\Venta;
+use Carbon\Carbon;
 use DOMDocument;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
@@ -138,6 +140,34 @@ class ElectronicInvoiceService
                 $this->deliverToCustomer($sale->fresh());
             }
         }
+
+        return $sale->fresh();
+    }
+
+    public function reprepareOfflineInvoice(Venta $sale, Carbon $emissionDate): Venta
+    {
+        if ($sale->tipo_comprobante !== 'FACTURA' || $sale->online || $sale->estado_siat !== 'PENDIENTE_EVENTO') {
+            throw new RuntimeException('Sólo se puede corregir una factura pendiente de envío fuera de línea');
+        }
+        if ($emissionDate->isFuture()) {
+            throw new RuntimeException('La fecha de emisión no puede estar en el futuro');
+        }
+
+        $company = Configuracion::firstOrFail();
+        $certificate = CertificadoDigital::where('activo', true)->where('valido_hasta', '>', now())->latest()->firstOrFail();
+        $cufd = SiatCufd::where('codigo', $sale->cufd)->firstOrFail();
+        if ($emissionDate->lt($cufd->created_at) || $emissionDate->gt($cufd->vence_en)) {
+            throw new RuntimeException('La nueva fecha debe estar dentro de la vigencia del CUFD original');
+        }
+
+        [$catalogActivity, $catalogProduct] = $this->siat->catalogDefaults();
+        $activity = config('siat.actividad_economica') ?: $catalogActivity;
+        $productCode = config('siat.codigo_producto_sin') ?: $catalogProduct;
+        $context = compact('company', 'certificate', 'cufd', 'emissionDate', 'activity', 'productCode');
+
+        $this->prepareOfflineInvoice($sale->loadMissing('detalles'), $context);
+        $sale->update(['fecha_emision_siat' => $emissionDate]);
+        $this->log('Fecha de factura fuera de línea corregida', ['venta_id' => $sale->id, 'fecha_emision_siat' => $emissionDate->toIso8601String()]);
 
         return $sale->fresh();
     }

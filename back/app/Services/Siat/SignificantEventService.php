@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Storage;
 use PharData;
 use RuntimeException;
 use SoapClient;
+use Carbon\Carbon;
 
 class SignificantEventService
 {
@@ -27,18 +28,20 @@ class SignificantEventService
 
     public function __construct(private SiatService $siat, private InvoiceDeliveryService $delivery) {}
 
-    public function process(int $reason, string $description, $start, $end, ?int $saleId = null): SiatEventoSignificativo
+    public function process(int $reason, string $description, int $saleId): SiatEventoSignificativo
     {
         set_time_limit(180);
-        $salesQuery = Venta::with(['detalles', 'cliente', 'usuario'])
+        $sale = Venta::with(['detalles', 'cliente', 'usuario'])
             ->where('tipo_comprobante', 'FACTURA')
             ->where('online', false)
             ->where('estado_siat', 'PENDIENTE_EVENTO')
-            ->whereBetween('fecha_emision_siat', [$start, $end])
-            ->whereNotNull('xml_path');
-        if ($saleId) $salesQuery->whereKey($saleId);
-        $sales = $salesQuery->get();
-        if ($sales->isEmpty()) throw new RuntimeException('No existen facturas pendientes dentro del periodo indicado');
+            ->whereNotNull('xml_path')
+            ->find($saleId);
+        if (! $sale) throw new RuntimeException('La factura ya fue enviada o no está preparada para un evento significativo');
+
+        $start = Carbon::parse($sale->fecha_emision_siat)->setMicrosecond(0);
+        $end = $start->copy()->addSecond();
+        $sales = collect([$sale]);
 
         [$cuis, $currentCufd] = $this->siat->ensureCredentials();
         $eventCufd = (string) $sales->first()->cufd;

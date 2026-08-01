@@ -67,7 +67,7 @@
               <div class="permissions-grid">
                 <div v-for="group in permissionGroups" :key="group.name" class="permission-group">
                   <div class="text-caption text-weight-bold text-primary">{{group.name}}</div>
-                  <q-checkbox v-for="p in group.items" :key="p.id" v-model="selectedPermissions" :val="p.id" :label="p.name.replace(` ${group.name}`,'')" dense size="sm"/>
+                  <q-checkbox v-for="p in group.items" :key="p.id" v-model="selectedPermissions" :val="p.id" :label="p.name" dense size="sm"/>
                 </div>
               </div>
             </template>
@@ -89,7 +89,25 @@ const columns=[{name:'actions',label:'Acciones',align:'left'},{name:'user',label
 const can=p=>proxy.$store.hasPermission(p),required=v=>!!v||'Campo requerido'
 const avatarUrl=filename=>`${proxy.$imgBase}/images/${filename}`
 const filtered=computed(()=>{const q=(search.value||'').toLowerCase();return rows.value.filter(u=>[u.name,u.username,u.email,u.ci].some(v=>(v||'').toLowerCase().includes(q)))})
-const permissionGroups=computed(()=>['Usuarios','Productos','Ventas','Compras','Configuración'].map(name=>({name,items:permissions.value.filter(p=>p.name.includes(name))})))
+const permissionGroupDefinitions=[
+  {name:'Usuarios',matches:['Usuarios','Permisos']},
+  {name:'Productos',matches:['Productos']},
+  {name:'Ventas',matches:['Ventas']},
+  {name:'Compras',matches:['Compras']},
+  {name:'Configuración',matches:['Configuración']},
+  {name:'Facturación SIAT',matches:['SIAT','Factura']},
+]
+const permissionGroups=computed(()=>{
+  const assigned=new Set()
+  const groups=permissionGroupDefinitions.map(group=>{
+    const items=permissions.value.filter(permission=>!assigned.has(permission.id)&&group.matches.some(word=>permission.name.includes(word)))
+    items.forEach(permission=>assigned.add(permission.id))
+    return{name:group.name,items}
+  }).filter(group=>group.items.length)
+  const others=permissions.value.filter(permission=>!assigned.has(permission.id))
+  if(others.length)groups.push({name:'Otros',items:others})
+  return groups
+})
 function load(){loading.value=true;proxy.$axios.get('/users').then(r=>rows.value=r.data).catch(e=>proxy.$alert.error(e.response?.data?.message||'No se pudieron cargar los usuarios')).finally(()=>loading.value=false)}
 async function openForm(row=null){clearPreview();avatarFile.value=null;dragging.value=false;Object.assign(form,empty(),row||{});selectedPermissions.value=(row?.permissions||[]).map(p=>p.id);if(can('Gestionar Permisos')){try{permissions.value=(await proxy.$axios.get('/permissions')).data}catch(e){proxy.$alert.error(e.response?.data?.message||'No se pudieron cargar los permisos')}}dialog.value=true}
 function closeForm(){dialog.value=false;clearPreview();avatarFile.value=null}
