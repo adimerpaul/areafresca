@@ -310,8 +310,10 @@ class ElectronicInvoiceService
                 'cantidad' => $item->cantidad,
                 'unidadMedida' => config('siat.unidad_medida'),
                 'precioUnitario' => $item->precio_venta,
-                'montoDescuento' => $item->descuento,
-                'subTotal' => $item->total,
+                // El descuento de la venta se declara una sola vez en
+                // descuentoAdicional. Repetirlo aquí hace que SIAT lo reste dos veces.
+                'montoDescuento' => 0,
+                'subTotal' => $item->subtotal,
                 'numeroSerie' => null,
                 'numeroImei' => null,
             ];

@@ -20,7 +20,10 @@ class VentaController extends Controller
     public function index(Request $request)
     {
         $this->authorizeAction($request, 'Ver Ventas');
-        $query = $this->filteredQuery($request)->withCount('detalles')->latest('fecha');
+        $query = $this->filteredQuery($request)
+            ->with('usuario:id,name,username')
+            ->withCount('detalles')
+            ->latest('fecha');
 
         $perPage = (int) $request->input('per_page', 20);
 
@@ -38,7 +41,7 @@ class VentaController extends Controller
             'total' => (clone $query)->sum('total'),
             'descuento' => (clone $query)->sum('descuento'),
             'cantidad' => (clone $query)->count(),
-            'usuarios' => User::orderBy('name')->get(['id', 'name']),
+            'usuarios' => User::orderBy('username')->get(['id', 'name', 'username']),
         ]);
     }
 
@@ -106,7 +109,7 @@ class VentaController extends Controller
     {
         $this->authorizeAction($request, 'Ver Ventas');
 
-        return response()->json($venta->load('detalles'));
+        return response()->json($venta->load(['detalles', 'usuario:id,name,username']));
     }
 
     public function siatStatus(Request $request, SiatService $siat)
