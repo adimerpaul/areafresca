@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Services\Siat\ElectronicInvoiceService;
 use App\Services\Siat\SiatService;
+use App\Services\InvoiceDeliveryService;
 
 class VentaController extends Controller
 {
@@ -302,7 +303,7 @@ class VentaController extends Controller
         return $query;
     }
 
-    public function cancel(Request $request, Venta $venta, SiatService $siat)
+    public function cancel(Request $request, Venta $venta, SiatService $siat, InvoiceDeliveryService $delivery)
     {
         $this->authorizeAction($request, 'Anular Ventas');
         abort_if($venta->estado === 'ANULADA', 422, 'La venta ya está anulada');
@@ -337,6 +338,19 @@ class VentaController extends Controller
             }
             $venta->update(['estado' => 'ANULADA']);
         });
+
+        if ($venta->tipo_comprobante === 'FACTURA') {
+            $reason = isset($data['codigo_motivo'])
+                ? SiatService::CANCELLATION_REASONS[(int) $data['codigo_motivo']]
+                : null;
+            try {
+                $delivery->sendCancellation($venta->fresh(), $reason);
+            } catch (\Throwable $exception) {
+                $venta->update(['email_error' => $exception->getMessage()]);
+                error_log('[CORREO][ANULACION] ERROR: '.json_encode(['venta_id' => $venta->id, 'error' => $exception->getMessage()], JSON_UNESCAPED_UNICODE));
+                report($exception);
+            }
+        }
 
         return response()->json([
             'venta' => $venta->fresh(),

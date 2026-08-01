@@ -7,6 +7,7 @@ use App\Http\Controllers\ConfiguracionController;
 use App\Http\Controllers\CorreoPruebaController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\SiatTokenController;
+use App\Http\Controllers\SiatEventoSignificativoController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VentaController;
 use Illuminate\Support\Facades\Route;
@@ -73,6 +74,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/siat-credenciales', [SiatTokenController::class, 'credentials']);
     Route::post('/siat-cuis', [SiatTokenController::class, 'createCuis']);
     Route::post('/siat-cufd', [SiatTokenController::class, 'createCufd']);
+    Route::get('/siat-eventos-significativos', [SiatEventoSignificativoController::class, 'index']);
+    Route::post('/siat-eventos-significativos', [SiatEventoSignificativoController::class, 'store']);
     Route::post('/siat-tokens', [SiatTokenController::class, 'store']);
     Route::delete('/siat-tokens/{token}', [SiatTokenController::class, 'destroy']);
 });

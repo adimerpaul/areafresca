@@ -2,6 +2,7 @@
 
 namespace App\Services\Siat;
 
+use App\Services\InvoiceDeliveryService;
 use App\Models\CertificadoDigital;
 use App\Models\Configuracion;
 use App\Models\SiatToken;
@@ -17,10 +18,12 @@ class ElectronicInvoiceService
         private CufGenerator $cufGenerator,
         private XmlSigner $xmlSigner,
         private SiatService $siat,
+        private InvoiceDeliveryService $delivery,
     ) {}
 
     public function issue(Venta $sale): Venta
     {
+        $offlineContext = null;
         $this->log('Inicio de emisión', [
             'venta_id' => $sale->id,
             'numero' => $sale->numero,
@@ -81,6 +84,8 @@ class ElectronicInvoiceService
 
             $this->validateSignedXml($signedXml);
 
+            $offlineContext = compact('company', 'certificate', 'cufd', 'emissionDate', 'activity', 'productCode');
+
             $xmlPath = "impuestos/facturas/{$sale->id}.xml";
             Storage::disk('local')->put($xmlPath, $signedXml);
 
@@ -114,7 +119,18 @@ class ElectronicInvoiceService
             );
 
             $this->saveSiatResponse($sale, $response);
+
+            if ((int) ($response->codigoEstado ?? 0) === 908) {
+                $this->deliverToCustomer($sale->fresh());
+            }
         } catch (\Throwable $exception) {
+            if ($offlineContext && $this->isCommunicationFailure($exception)) {
+                try {
+                    $this->prepareOfflineInvoice($sale, $offlineContext);
+                } catch (\Throwable $offlineError) {
+                    $this->log('ERROR preparando factura fuera de línea', ['venta_id' => $sale->id, 'error' => $offlineError->getMessage()]);
+                }
+            }
             $this->handleFailure($sale, $exception);
         }
 
@@ -237,6 +253,52 @@ class ElectronicInvoiceService
         ]);
 
         report($exception);
+    }
+
+    private function deliverToCustomer(Venta $sale): void
+    {
+        try {
+            $this->delivery->generatePdf($sale);
+            $this->delivery->send($sale->fresh());
+        } catch (\Throwable $exception) {
+            $sale->update(['email_error' => $exception->getMessage()]);
+            $this->log('ERROR correo de factura', [
+                'venta_id' => $sale->id,
+                'error' => $exception->getMessage(),
+            ]);
+            report($exception);
+        }
+    }
+
+    private function isCommunicationFailure(\Throwable $exception): bool
+    {
+        return $exception instanceof \SoapFault
+            || str_contains(strtolower($exception->getMessage()), 'connection')
+            || str_contains(strtolower($exception->getMessage()), 'could not connect')
+            || str_contains(strtolower($exception->getMessage()), 'failed to load external entity');
+    }
+
+    private function prepareOfflineInvoice(Venta $sale, array $context): void
+    {
+        $date = $context['emissionDate'];
+        $timestamp = $date->format('YmdHis').str_pad((string) intval($date->format('v')), 3, '0', STR_PAD_LEFT);
+        $cuf = $this->cufGenerator->generate(
+            nit: $context['company']->nit,
+            timestamp: $timestamp,
+            branch: config('siat.sucursal'),
+            modality: config('siat.modalidad'),
+            emission: 2,
+            invoice: $sale->id,
+            pos: config('siat.punto_venta'),
+            control: $context['cufd']->codigo_control,
+        );
+        $xml = $this->buildXml($sale, $context['company'], $context['cufd']->codigo, $cuf, $date, $context['activity'], $context['productCode']);
+        $signedXml = $this->xmlSigner->sign($xml, $context['certificate']->clave_privada_cifrada, $context['certificate']->certificado_pem);
+        $this->validateSignedXml($signedXml);
+        $path = "impuestos/facturas/{$sale->id}.xml";
+        Storage::disk('local')->put($path, $signedXml);
+        $sale->update(['cuf' => $cuf, 'cufd' => $context['cufd']->codigo, 'xml_path' => $path]);
+        $this->log('Factura preparada para evento significativo', ['venta_id' => $sale->id, 'tipo_emision' => 2]);
     }
 
     private function buildXml(
