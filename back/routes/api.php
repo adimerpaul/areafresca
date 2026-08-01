@@ -52,7 +52,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/siat/estado', [VentaController::class, 'siatStatus']);
     Route::get('/siat/motivos-anulacion', [VentaController::class, 'siatCancellationReasons']);
     Route::get('/ventas/{venta}/verificar-impuestos', [VentaController::class, 'verifyTaxes']);
-    Route::post('/ventas/{venta}/anular-impuestos', [VentaController::class, 'cancelTaxes']);
     Route::get('/ventas/{venta}', [VentaController::class, 'show']);
     Route::put('/ventas/{venta}/anular', [VentaController::class, 'cancel']);
 

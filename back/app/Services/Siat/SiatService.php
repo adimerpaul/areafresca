@@ -8,6 +8,13 @@ use SoapClient;
 
 class SiatService
 {
+    public const CANCELLATION_REASONS = [
+        1 => 'FACTURA MAL EMITIDA',
+        2 => 'NOTA DE CRÉDITO-DÉBITO MAL EMITIDA',
+        3 => 'DATOS DE EMISIÓN INCORRECTOS',
+        4 => 'FACTURA O NOTA DE CRÉDITO-DÉBITO DEVUELTA',
+    ];
+
     public function ensureCredentials(): array
     {
         $cuis = SiatCuis::where('vence_en', '>', now()->addMinutes(5))->latest()->first();
@@ -117,15 +124,13 @@ class SiatService
 
     public function cancellationReasons(): array
     {
-        [$cuis] = $this->ensureCredentials();
-        $response = $this->call('FacturacionSincronizacion', 'sincronizarParametricaMotivoAnulacion', 'RespuestaListaParametricas', [
-            'SolicitudSincronizacion' => $this->baseRequest(true, $cuis->codigo),
-        ]);
-
-        return collect($this->asArray($response->listaCodigos ?? []))->map(fn ($item) => [
-            'codigo' => (int) $item->codigoClasificador,
-            'descripcion' => $item->descripcion,
-        ])->values()->all();
+        return collect(self::CANCELLATION_REASONS)
+            ->map(fn (string $description, int $code) => [
+                'codigo' => $code,
+                'descripcion' => $description,
+            ])
+            ->values()
+            ->all();
     }
 
     public function catalogDefaults(): array

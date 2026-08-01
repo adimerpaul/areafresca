@@ -133,14 +133,6 @@ class VentaController extends Controller
         return response()->json($siat->verifyInvoice($venta));
     }
 
-    public function cancelTaxes(Request $request, Venta $venta, SiatService $siat)
-    {
-        $this->authorizeAction($request, 'Anular Ventas');
-        $data = $request->validate(['codigo_motivo' => ['required', 'integer', 'min:1']]);
-
-        return response()->json($siat->cancelInvoice($venta, (int) $data['codigo_motivo']));
-    }
-
     public function store(Request $request, ElectronicInvoiceService $invoices, SiatService $siat)
     {
         error_log('[VENTA][STORE] Inicio: '.json_encode(['usuario_id'=>$request->user()?->id,'cantidad_detalles'=>count($request->input('detalles',[])),'numero_documento'=>$request->input('numero_documento','0')], JSON_UNESCAPED_UNICODE));
@@ -310,10 +302,30 @@ class VentaController extends Controller
         return $query;
     }
 
-    public function cancel(Request $request, Venta $venta)
+    public function cancel(Request $request, Venta $venta, SiatService $siat)
     {
         $this->authorizeAction($request, 'Anular Ventas');
         abort_if($venta->estado === 'ANULADA', 422, 'La venta ya está anulada');
+
+        $mustCancelInSiat = $venta->tipo_comprobante === 'FACTURA'
+            && $venta->estado_siat === 'VALIDADA';
+
+        if ($mustCancelInSiat) {
+            $data = $request->validate([
+                'codigo_motivo' => [
+                    'required',
+                    'integer',
+                    'in:'.implode(',', array_keys(SiatService::CANCELLATION_REASONS)),
+                ],
+            ]);
+            $siatResponse = $siat->cancelInvoice($venta, (int) $data['codigo_motivo']);
+
+            abort_unless(
+                $siatResponse['transaccion'],
+                422,
+                $siatResponse['mensaje'] ?: 'Impuestos rechazó la anulación de la factura',
+            );
+        }
 
         DB::transaction(function () use ($venta) {
             foreach ($venta->detalles as $detail) {
@@ -326,7 +338,12 @@ class VentaController extends Controller
             $venta->update(['estado' => 'ANULADA']);
         });
 
-        return response()->json($venta->fresh());
+        return response()->json([
+            'venta' => $venta->fresh(),
+            'mensaje' => $mustCancelInSiat
+                ? 'Factura anulada en Impuestos y venta anulada correctamente'
+                : 'Venta anulada correctamente',
+        ]);
     }
 
     private function authorizeAction(Request $request, string $permission): void
