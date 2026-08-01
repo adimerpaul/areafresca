@@ -126,7 +126,7 @@ class ElectronicInvoiceService
                 $this->deliverToCustomer($sale->fresh());
             }
         } catch (\Throwable $exception) {
-            $offlinePrepared = true;
+            $offlinePrepared = false;
             if ($offlineContext && $this->isCommunicationFailure($exception)) {
                 try {
                     $this->prepareOfflineInvoice($sale, $offlineContext);
