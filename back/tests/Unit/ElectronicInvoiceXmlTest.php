@@ -12,6 +12,37 @@ use Tests\TestCase;
 
 class ElectronicInvoiceXmlTest extends TestCase
 {
+    public function test_offline_mode_is_controlled_directly_in_the_service(): void
+    {
+        $source = file_get_contents(app_path('Services/Siat/ElectronicInvoiceService.php'));
+
+        $this->assertStringContainsString('private const OFFLINE_MODE = false;', $source);
+        $this->assertStringContainsString('$offlineMode = self::OFFLINE_MODE;', $source);
+    }
+
+    public function test_online_invoice_uses_the_real_siat_operation(): void
+    {
+        $source = file_get_contents(app_path('Services/Siat/ElectronicInvoiceService.php'));
+
+        $this->assertStringContainsString("'SolicitudServicioRecepcionFactura' => [", $source);
+        $this->assertStringContainsString('$soapClient->recepcionFactura($request)', $source);
+        $this->assertStringNotContainsString('recepcionFacturaXXX', $source);
+    }
+
+    public function test_issue_failure_is_not_automatically_converted_to_offline_emission(): void
+    {
+        $source = file_get_contents(app_path('Services/Siat/ElectronicInvoiceService.php'));
+        $issueMethod = (new ReflectionClass(ElectronicInvoiceService::class))->getMethod('issue');
+        $issueSource = implode('', array_slice(
+            file($issueMethod->getFileName()),
+            $issueMethod->getStartLine() - 1,
+            $issueMethod->getEndLine() - $issueMethod->getStartLine() + 1,
+        ));
+
+        $this->assertStringNotContainsString('prepareOfflineInvoice', $issueSource);
+        $this->assertStringContainsString("'estado_siat' => 'ERROR_ENVIO'", $source);
+    }
+
     public function test_general_discount_is_not_repeated_in_invoice_details(): void
     {
         config([

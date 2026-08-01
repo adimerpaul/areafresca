@@ -16,6 +16,9 @@ use SoapClient;
 
 class ElectronicInvoiceService
 {
+    // false = emisión en línea; true = emisión fuera de línea.
+    private const OFFLINE_MODE = false;
+
     public function __construct(
         private CufGenerator $cufGenerator,
         private XmlSigner $xmlSigner,
@@ -25,7 +28,6 @@ class ElectronicInvoiceService
 
     public function issue(Venta $sale): Venta
     {
-        $offlineContext = null;
         $this->log('Inicio de emisión', [
             'venta_id' => $sale->id,
             'numero' => $sale->numero,
@@ -54,6 +56,7 @@ class ElectronicInvoiceService
             );
 
             $emissionDate = now();
+            $offlineMode = self::OFFLINE_MODE;
             $timestamp = $emissionDate->format('YmdHis')
                 .str_pad((string) intval($emissionDate->format('v')), 3, '0', STR_PAD_LEFT);
 
@@ -62,7 +65,7 @@ class ElectronicInvoiceService
                 timestamp: $timestamp,
                 branch: config('siat.sucursal'),
                 modality: config('siat.modalidad'),
-                emission: 1,
+                emission: $offlineMode ? 2 : 1,
                 invoice: $sale->id,
                 pos: config('siat.punto_venta'),
                 control: $cufd->codigo_control,
@@ -86,8 +89,6 @@ class ElectronicInvoiceService
 
             $this->validateSignedXml($signedXml);
 
-            $offlineContext = compact('company', 'certificate', 'cufd', 'emissionDate', 'activity', 'productCode');
-
             $xmlPath = "impuestos/facturas/{$sale->id}.xml";
             Storage::disk('local')->put($xmlPath, $signedXml);
 
@@ -97,16 +98,33 @@ class ElectronicInvoiceService
                 'xml_sha256' => hash('sha256', $signedXml),
             ]);
 
+            $status = ! config('siat.enabled')
+                ? 'PENDIENTE_CONFIGURACION'
+                : ($offlineMode ? 'PENDIENTE_EVENTO' : 'ENVIANDO');
+
             $sale->update([
                 'cuf' => $cuf,
                 'cufd' => $cufd->codigo,
                 'xml_path' => $xmlPath,
                 'fecha_emision_siat' => $emissionDate,
-                'estado_siat' => config('siat.enabled') ? 'ENVIANDO' : 'PENDIENTE_CONFIGURACION',
-                'siat_mensaje' => config('siat.enabled') ? null : 'SIAT_ENABLED está desactivado',
+                'estado_siat' => $status,
+                'online' => false,
+                'siat_mensaje' => ! config('siat.enabled')
+                    ? 'SIAT_ENABLED está desactivado'
+                    : ($offlineMode ? 'Emisión fuera de línea activada manualmente' : null),
             ]);
 
             if (! config('siat.enabled')) {
+                return $sale->fresh();
+            }
+
+            if ($offlineMode) {
+                $this->log('Factura emitida fuera de línea por configuración', [
+                    'venta_id' => $sale->id,
+                    'tipo_emision' => 2,
+                ]);
+                $this->deliverToCustomer($sale->fresh());
+
                 return $sale->fresh();
             }
 
@@ -126,19 +144,7 @@ class ElectronicInvoiceService
                 $this->deliverToCustomer($sale->fresh());
             }
         } catch (\Throwable $exception) {
-            $offlinePrepared = false;
-            if ($offlineContext && $this->isCommunicationFailure($exception)) {
-                try {
-                    $this->prepareOfflineInvoice($sale, $offlineContext);
-                    $offlinePrepared = true;
-                } catch (\Throwable $offlineError) {
-                    $this->log('ERROR preparando factura fuera de línea', ['venta_id' => $sale->id, 'error' => $offlineError->getMessage()]);
-                }
-            }
             $this->handleFailure($sale, $exception);
-            if ($offlinePrepared) {
-                $this->deliverToCustomer($sale->fresh());
-            }
         }
 
         return $sale->fresh();
@@ -229,7 +235,7 @@ class ElectronicInvoiceService
         ]);
 
         $request = [
-            'SolicitudServicioRecepcionFacturaXXX' => [
+            'SolicitudServicioRecepcionFactura' => [
                 'codigoAmbiente' => config('siat.ambiente'),
                 'codigoDocumentoSector' => 1,
                 'codigoEmision' => 1,
@@ -247,9 +253,7 @@ class ElectronicInvoiceService
             ],
         ];
 
-        // Operación alterada únicamente para probar el flujo fuera de línea.
-        // CUIS, CUFD, verificación, anulación y paquetes conservan sus operaciones reales.
-        $result = $soapClient->recepcionFacturaXXX($request);
+        $result = $soapClient->recepcionFactura($request);
 
         return $result->RespuestaServicioFacturacion ?? $result;
     }
@@ -280,13 +284,14 @@ class ElectronicInvoiceService
     {
         $this->log('ERROR emisión', [
             'venta_id' => $sale->id,
-            'estado' => 'PENDIENTE_EVENTO',
+            'estado' => 'ERROR_ENVIO',
             'error' => $exception->getMessage(),
             'tipo' => $exception::class,
         ]);
 
         $sale->update([
-            'estado_siat' => 'PENDIENTE_EVENTO',
+            'estado_siat' => 'ERROR_ENVIO',
+            'online' => false,
             'siat_mensaje' => $exception->getMessage(),
         ]);
 
@@ -306,14 +311,6 @@ class ElectronicInvoiceService
             ]);
             report($exception);
         }
-    }
-
-    private function isCommunicationFailure(\Throwable $exception): bool
-    {
-        return $exception instanceof \SoapFault
-            || str_contains(strtolower($exception->getMessage()), 'connection')
-            || str_contains(strtolower($exception->getMessage()), 'could not connect')
-            || str_contains(strtolower($exception->getMessage()), 'failed to load external entity');
     }
 
     private function prepareOfflineInvoice(Venta $sale, array $context): void
