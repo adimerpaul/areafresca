@@ -1,39 +1,347 @@
 <?php
+
 namespace App\Services\Siat;
 
-use App\Models\{CertificadoDigital,Configuracion,SiatCufd,SiatCuis,SiatToken,Venta};
-use DOMDocument; use RuntimeException; use SoapClient;
+use App\Models\CertificadoDigital;
+use App\Models\Configuracion;
+use App\Models\SiatToken;
+use App\Models\Venta;
+use DOMDocument;
+use Illuminate\Support\Facades\Storage;
+use RuntimeException;
+use SoapClient;
 
-class ElectronicInvoiceService {
-    public function __construct(private CufGenerator $cuf, private XmlSigner $signer, private SiatService $siat) {}
-    public function issue(Venta $sale): Venta {
-        error_log('[SIAT] Inicio emisión: '.json_encode(['venta_id'=>$sale->id,'numero'=>$sale->numero,'total'=>$sale->total], JSON_UNESCAPED_UNICODE));
+class ElectronicInvoiceService
+{
+    public function __construct(
+        private CufGenerator $cufGenerator,
+        private XmlSigner $xmlSigner,
+        private SiatService $siat,
+    ) {}
+
+    public function issue(Venta $sale): Venta
+    {
+        $this->log('Inicio de emisión', [
+            'venta_id' => $sale->id,
+            'numero' => $sale->numero,
+            'total' => $sale->total,
+        ]);
+
         try {
-            $company=Configuracion::first(); $token=SiatToken::where('vence_en','>',now())->latest()->first();
-            $cert=CertificadoDigital::where('activo',true)->where('valido_hasta','>',now())->latest()->first();
-            [$cuis,$cufd]=$this->siat->ensureCredentials();
-            [$catalogActivity,$catalogProduct]=$this->siat->catalogDefaults();
-            $activity=config('siat.actividad_economica')?:$catalogActivity; $productCode=config('siat.codigo_producto_sin')?:$catalogProduct;
-            foreach ([['Empresa/NIT',$company?->nit],['código de sistema',config('siat.codigo_sistema')],['actividad económica',$activity],['token SIAT',$token],['certificado digital',$cert]] as [$name,$value]) if(!$value) throw new RuntimeException("Falta {$name} para facturar");
-            $date=now(); $stamp=$date->format('YmdHis').str_pad((string)intval($date->format('v')),3,'0',STR_PAD_LEFT);
-            $cuf=$this->cuf->generate($company->nit,$stamp,config('siat.sucursal'),config('siat.modalidad'),1,$sale->id,config('siat.punto_venta'),$cufd->codigo_control);
-            $xml=$this->buildXml($sale,$company,$cufd->codigo,$cuf,$date,$activity,$productCode); $signed=$this->signer->sign($xml,$cert->clave_privada_cifrada,$cert->certificado_pem);
-            $path="impuestos/facturas/{$sale->id}.xml"; \Storage::disk('local')->put($path,$signed);
-            error_log('[SIAT] XML generado y firmado: '.json_encode(['venta_id'=>$sale->id,'xml_path'=>$path,'xml_sha256'=>hash('sha256',$signed)], JSON_UNESCAPED_UNICODE));
-            $sale->update(['cuf'=>$cuf,'cufd'=>$cufd->codigo,'xml_path'=>$path,'fecha_emision_siat'=>$date,'estado_siat'=>config('siat.enabled')?'ENVIANDO':'PENDIENTE_CONFIGURACION','siat_mensaje'=>config('siat.enabled')?null:'SIAT_ENABLED está desactivado']);
-            if(!config('siat.enabled')) return $sale->fresh();
-            if(!class_exists(SoapClient::class)) throw new RuntimeException('La extensión PHP SOAP no está habilitada');
-            $gz=gzencode($signed,9); error_log('[SIAT] Enviando factura a Impuestos: '.json_encode(['venta_id'=>$sale->id,'archivo_bytes'=>strlen($gz),'hash_archivo'=>hash('sha256',$gz)], JSON_UNESCAPED_UNICODE)); $client=new SoapClient(config('siat.wsdl'),['stream_context'=>stream_context_create(['http'=>['header'=>'apikey: TokenApi '.$token->token_cifrado]]),'cache_wsdl'=>WSDL_CACHE_NONE,'trace'=>1]);
-            $result=$client->recepcionFactura(['SolicitudServicioRecepcionFactura'=>['codigoAmbiente'=>config('siat.ambiente'),'codigoDocumentoSector'=>1,'codigoEmision'=>1,'codigoModalidad'=>config('siat.modalidad'),'codigoPuntoVenta'=>config('siat.punto_venta'),'codigoSistema'=>config('siat.codigo_sistema'),'codigoSucursal'=>config('siat.sucursal'),'cufd'=>$cufd->codigo,'cuis'=>$cuis->codigo,'nit'=>$company->nit,'tipoFacturaDocumento'=>1,'archivo'=>$gz,'fechaEnvio'=>$date->format('Y-m-d\TH:i:s.v'),'hashArchivo'=>hash('sha256',$gz)]]);
-            $response=$result->RespuestaServicioFacturacion??$result; $code=$response->codigoEstado??null; $sale->update(['estado_siat'=>$code==908?'VALIDADA':'OBSERVADA','codigo_recepcion'=>$response->codigoRecepcion??null,'siat_mensaje'=>$response->mensajesList?->descripcion??null]);
-            error_log('[SIAT] Emisión finalizada: '.json_encode(['venta_id'=>$sale->id,'codigo_estado'=>$code,'estado_siat'=>$code==908?'VALIDADA':'OBSERVADA','codigo_recepcion'=>$response->codigoRecepcion??null,'mensaje'=>$response->mensajesList?->descripcion??null], JSON_UNESCAPED_UNICODE));
-        } catch (\Throwable $e) { error_log('[SIAT] ERROR emisión: '.json_encode(['venta_id'=>$sale->id,'estado'=>'PENDIENTE_EVENTO','error'=>$e->getMessage(),'tipo'=>$e::class], JSON_UNESCAPED_UNICODE)); $sale->update(['estado_siat'=>'PENDIENTE_EVENTO','siat_mensaje'=>$e->getMessage()]); report($e); }
+            $company = Configuracion::first();
+            $token = SiatToken::where('vence_en', '>', now())->latest()->first();
+            $certificate = CertificadoDigital::where('activo', true)
+                ->where('valido_hasta', '>', now())
+                ->latest()
+                ->first();
+
+            [$cuis, $cufd] = $this->siat->ensureCredentials();
+            [$catalogActivity, $catalogProduct] = $this->siat->catalogDefaults();
+
+            $activity = config('siat.actividad_economica') ?: $catalogActivity;
+            $productCode = config('siat.codigo_producto_sin') ?: $catalogProduct;
+
+            $this->validateRequirements(
+                company: $company,
+                token: $token,
+                certificate: $certificate,
+                activity: $activity,
+            );
+
+            $emissionDate = now();
+            $timestamp = $emissionDate->format('YmdHis')
+                .str_pad((string) intval($emissionDate->format('v')), 3, '0', STR_PAD_LEFT);
+
+            $cuf = $this->cufGenerator->generate(
+                nit: $company->nit,
+                timestamp: $timestamp,
+                branch: config('siat.sucursal'),
+                modality: config('siat.modalidad'),
+                emission: 1,
+                invoice: $sale->id,
+                pos: config('siat.punto_venta'),
+                control: $cufd->codigo_control,
+            );
+
+            $xml = $this->buildXml(
+                sale: $sale,
+                company: $company,
+                cufd: $cufd->codigo,
+                cuf: $cuf,
+                emissionDate: $emissionDate,
+                activity: $activity,
+                productCode: $productCode,
+            );
+
+            $signedXml = $this->xmlSigner->sign(
+                $xml,
+                $certificate->clave_privada_cifrada,
+                $certificate->certificado_pem,
+            );
+
+            $xmlPath = "impuestos/facturas/{$sale->id}.xml";
+            Storage::disk('local')->put($xmlPath, $signedXml);
+
+            $this->log('XML generado y firmado', [
+                'venta_id' => $sale->id,
+                'xml_path' => $xmlPath,
+                'xml_sha256' => hash('sha256', $signedXml),
+            ]);
+
+            $sale->update([
+                'cuf' => $cuf,
+                'cufd' => $cufd->codigo,
+                'xml_path' => $xmlPath,
+                'fecha_emision_siat' => $emissionDate,
+                'estado_siat' => config('siat.enabled') ? 'ENVIANDO' : 'PENDIENTE_CONFIGURACION',
+                'siat_mensaje' => config('siat.enabled') ? null : 'SIAT_ENABLED está desactivado',
+            ]);
+
+            if (! config('siat.enabled')) {
+                return $sale->fresh();
+            }
+
+            $response = $this->sendToSiat(
+                sale: $sale,
+                company: $company,
+                token: $token,
+                cuis: $cuis->codigo,
+                cufd: $cufd->codigo,
+                signedXml: $signedXml,
+                emissionDate: $emissionDate,
+            );
+
+            $this->saveSiatResponse($sale, $response);
+        } catch (\Throwable $exception) {
+            $this->handleFailure($sale, $exception);
+        }
+
         return $sale->fresh();
     }
-    private function buildXml(Venta $sale, Configuracion $company, string $cufd, string $cuf, $date, string $activity, int $productCode): string {
-        $doc=new DOMDocument('1.0','UTF-8'); $doc->formatOutput=true; $root=$doc->createElement('facturaElectronicaCompraVenta'); $root->setAttributeNS('http://www.w3.org/2000/xmlns/','xmlns:xsi','http://www.w3.org/2001/XMLSchema-instance'); $root->setAttributeNS('http://www.w3.org/2001/XMLSchema-instance','xsi:noNamespaceSchemaLocation','facturaElectronicaCompraVenta.xsd'); $doc->appendChild($root); $head=$root->appendChild($doc->createElement('cabecera'));
-        $fields=['nitEmisor'=>$company->nit,'razonSocialEmisor'=>$company->nombre_empresa,'municipio'=>config('siat.municipio'),'telefono'=>$company->telefono?:'0','numeroFactura'=>$sale->id,'cuf'=>$cuf,'cufd'=>$cufd,'codigoSucursal'=>config('siat.sucursal'),'direccion'=>$company->direccion?:'S/D','codigoPuntoVenta'=>config('siat.punto_venta'),'fechaEmision'=>$date->format('Y-m-d\TH:i:s.v'),'nombreRazonSocial'=>$sale->cliente_nombre?:'SIN NOMBRE','codigoTipoDocumentoIdentidad'=>$sale->tipo_documento==='NIT'?5:1,'numeroDocumento'=>$sale->numero_documento,'codigoCliente'=>$sale->numero_documento,'codigoMetodoPago'=>1,'montoTotal'=>$sale->total,'montoTotalSujetoIva'=>$sale->total,'codigoMoneda'=>1,'tipoCambio'=>1,'montoTotalMoneda'=>$sale->total,'descuentoAdicional'=>$sale->descuento,'leyenda'=>config('siat.leyenda'),'usuario'=>$sale->usuario_nombre,'codigoDocumentoSector'=>1]; foreach($fields as $k=>$v)$head->appendChild($doc->createElement($k,htmlspecialchars((string)$v,ENT_XML1)));
-        foreach($sale->detalles as $item){$d=$root->appendChild($doc->createElement('detalle')); foreach(['actividadEconomica'=>$activity,'codigoProductoSin'=>$productCode,'codigoProducto'=>$item->codigo_barras?:$item->codigo,'descripcion'=>$item->nombre,'cantidad'=>$item->cantidad,'unidadMedida'=>config('siat.unidad_medida'),'precioUnitario'=>$item->precio_venta,'montoDescuento'=>$item->descuento,'subTotal'=>$item->total] as $k=>$v)$d->appendChild($doc->createElement($k,htmlspecialchars((string)$v,ENT_XML1)));}
-        return $doc->saveXML();
+
+    private function validateRequirements(
+        ?Configuracion $company,
+        ?SiatToken $token,
+        ?CertificadoDigital $certificate,
+        ?string $activity,
+    ): void {
+        $requirements = [
+            'Empresa/NIT' => $company?->nit,
+            'código de sistema' => config('siat.codigo_sistema'),
+            'actividad económica' => $activity,
+            'token SIAT' => $token,
+            'certificado digital' => $certificate,
+        ];
+
+        foreach ($requirements as $name => $value) {
+            if (! $value) {
+                throw new RuntimeException("Falta {$name} para facturar");
+            }
+        }
+    }
+
+    private function sendToSiat(
+        Venta $sale,
+        Configuracion $company,
+        SiatToken $token,
+        string $cuis,
+        string $cufd,
+        string $signedXml,
+        $emissionDate,
+    ): object {
+        if (! class_exists(SoapClient::class)) {
+            throw new RuntimeException('La extensión PHP SOAP no está habilitada');
+        }
+
+        $compressedXml = gzencode($signedXml, 9);
+        $fileHash = hash('sha256', $compressedXml);
+
+        $this->log('Enviando factura a Impuestos', [
+            'venta_id' => $sale->id,
+            'archivo_bytes' => strlen($compressedXml),
+            'hash_archivo' => $fileHash,
+        ]);
+
+        $soapClient = new SoapClient(config('siat.wsdl'), [
+            'stream_context' => stream_context_create([
+                'http' => [
+                    'header' => 'apikey: TokenApi '.$token->token_cifrado,
+                ],
+            ]),
+            'cache_wsdl' => WSDL_CACHE_NONE,
+            'trace' => true,
+        ]);
+
+        $request = [
+            'SolicitudServicioRecepcionFactura' => [
+                'codigoAmbiente' => config('siat.ambiente'),
+                'codigoDocumentoSector' => 1,
+                'codigoEmision' => 1,
+                'codigoModalidad' => config('siat.modalidad'),
+                'codigoPuntoVenta' => config('siat.punto_venta'),
+                'codigoSistema' => config('siat.codigo_sistema'),
+                'codigoSucursal' => config('siat.sucursal'),
+                'cufd' => $cufd,
+                'cuis' => $cuis,
+                'nit' => $company->nit,
+                'tipoFacturaDocumento' => 1,
+                'archivo' => $compressedXml,
+                'fechaEnvio' => $emissionDate->format('Y-m-d\TH:i:s.v'),
+                'hashArchivo' => $fileHash,
+            ],
+        ];
+
+        $result = $soapClient->recepcionFactura($request);
+
+        return $result->RespuestaServicioFacturacion ?? $result;
+    }
+
+    private function saveSiatResponse(Venta $sale, object $response): void
+    {
+        $statusCode = $response->codigoEstado ?? null;
+        $status = (int) $statusCode === 908 ? 'VALIDADA' : 'OBSERVADA';
+        $message = $this->responseMessage($response);
+
+        $sale->update([
+            'estado_siat' => $status,
+            'codigo_recepcion' => $response->codigoRecepcion ?? null,
+            'siat_mensaje' => $message,
+        ]);
+
+        $this->log('Emisión finalizada', [
+            'venta_id' => $sale->id,
+            'codigo_estado' => $statusCode,
+            'estado_siat' => $status,
+            'codigo_recepcion' => $response->codigoRecepcion ?? null,
+            'mensaje' => $message,
+        ]);
+    }
+
+    private function handleFailure(Venta $sale, \Throwable $exception): void
+    {
+        $this->log('ERROR emisión', [
+            'venta_id' => $sale->id,
+            'estado' => 'PENDIENTE_EVENTO',
+            'error' => $exception->getMessage(),
+            'tipo' => $exception::class,
+        ]);
+
+        $sale->update([
+            'estado_siat' => 'PENDIENTE_EVENTO',
+            'siat_mensaje' => $exception->getMessage(),
+        ]);
+
+        report($exception);
+    }
+
+    private function buildXml(
+        Venta $sale,
+        Configuracion $company,
+        string $cufd,
+        string $cuf,
+        $emissionDate,
+        string $activity,
+        int $productCode,
+    ): string {
+        $document = new DOMDocument('1.0', 'UTF-8');
+        $document->formatOutput = true;
+
+        $root = $document->createElement('facturaElectronicaCompraVenta');
+        $root->setAttributeNS(
+            'http://www.w3.org/2000/xmlns/',
+            'xmlns:xsi',
+            'http://www.w3.org/2001/XMLSchema-instance',
+        );
+        $root->setAttributeNS(
+            'http://www.w3.org/2001/XMLSchema-instance',
+            'xsi:noNamespaceSchemaLocation',
+            'facturaElectronicaCompraVenta.xsd',
+        );
+        $document->appendChild($root);
+
+        $header = $root->appendChild($document->createElement('cabecera'));
+        $headerFields = [
+            'nitEmisor' => $company->nit,
+            'razonSocialEmisor' => $company->nombre_empresa,
+            'municipio' => config('siat.municipio'),
+            'telefono' => $company->telefono ?: '0',
+            'numeroFactura' => $sale->id,
+            'cuf' => $cuf,
+            'cufd' => $cufd,
+            'codigoSucursal' => config('siat.sucursal'),
+            'direccion' => $company->direccion ?: 'S/D',
+            'codigoPuntoVenta' => config('siat.punto_venta'),
+            'fechaEmision' => $emissionDate->format('Y-m-d\TH:i:s.v'),
+            'nombreRazonSocial' => $sale->cliente_nombre ?: 'SIN NOMBRE',
+            'codigoTipoDocumentoIdentidad' => $sale->tipo_documento === 'NIT' ? 5 : 1,
+            'numeroDocumento' => $sale->numero_documento,
+            'codigoCliente' => $sale->numero_documento,
+            'codigoMetodoPago' => 1,
+            'montoTotal' => $sale->total,
+            'montoTotalSujetoIva' => $sale->total,
+            'codigoMoneda' => 1,
+            'tipoCambio' => 1,
+            'montoTotalMoneda' => $sale->total,
+            'descuentoAdicional' => $sale->descuento,
+            'leyenda' => config('siat.leyenda'),
+            'usuario' => $sale->usuario_nombre,
+            'codigoDocumentoSector' => 1,
+        ];
+
+        $this->appendFields($document, $header, $headerFields);
+
+        foreach ($sale->detalles as $item) {
+            $detail = $root->appendChild($document->createElement('detalle'));
+            $detailFields = [
+                'actividadEconomica' => $activity,
+                'codigoProductoSin' => $productCode,
+                'codigoProducto' => $item->codigo_barras ?: $item->codigo,
+                'descripcion' => $item->nombre,
+                'cantidad' => $item->cantidad,
+                'unidadMedida' => config('siat.unidad_medida'),
+                'precioUnitario' => $item->precio_venta,
+                'montoDescuento' => $item->descuento,
+                'subTotal' => $item->total,
+            ];
+
+            $this->appendFields($document, $detail, $detailFields);
+        }
+
+        return $document->saveXML();
+    }
+
+    private function appendFields(DOMDocument $document, \DOMElement $parent, array $fields): void
+    {
+        foreach ($fields as $name => $value) {
+            $parent->appendChild(
+                $document->createElement(
+                    $name,
+                    htmlspecialchars((string) $value, ENT_XML1),
+                ),
+            );
+        }
+    }
+
+    private function responseMessage(object $response): ?string
+    {
+        $messages = $response->mensajesList ?? null;
+
+        if (is_array($messages)) {
+            return implode('; ', array_filter(array_map(
+                fn ($message) => $message->descripcion ?? null,
+                $messages,
+            )));
+        }
+
+        return $messages?->descripcion;
+    }
+
+    private function log(string $message, array $context = []): void
+    {
+        $suffix = $context
+            ? ': '.json_encode($context, JSON_UNESCAPED_UNICODE)
+            : '';
+
+        error_log("[SIAT] {$message}{$suffix}");
     }
 }
