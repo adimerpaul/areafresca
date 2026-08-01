@@ -16,11 +16,11 @@ table{width:100%;border-collapse:collapse}th,td{padding:2px 1px;vertical-align:t
 .product{font-weight:700}.muted{font-size:9px}.totals td:first-child{text-align:right}.highlight{background:#f3f3f3;font-weight:700}
 .amount-words{margin:26px 7px 8px}.legal{font-size:8.5px;margin:10px 5px}.qr{display:block;width:118px;height:118px;margin:8px auto 0}
 .cancelled{font-size:28px;color:#c62828;text-align:center;font-weight:700}
-`,F=e=>String(e??``).replaceAll(`&`,`&amp;`).replaceAll(`<`,`&lt;`).replaceAll(`>`,`&gt;`).replaceAll(`"`,`&quot;`),I=e=>Number(e||0).toFixed(2),L=e=>e.unidad===`KG`?Number(e.cantidad).toFixed(3):Number(e.cantidad).toFixed(2),R=e=>String(e.id??e.numero??``).replace(/^V-0*/,``),z=e=>e.usuario?.username||e.usuario_nombre||``;function B(e,t){let n=t.siat_portal_url||`https://siat.impuestos.gob.bo/`,r=new URL(`consulta/QR`,n.endsWith(`/`)?n:`${n}/`);return r.search=new URLSearchParams({nit:t.nit||``,cuf:e.cuf||``,numero:R(e),t:`2`}).toString(),r.toString()}function V(e){return(e.detalles||[]).map(e=>`
+`,F=e=>String(e??``).replaceAll(`&`,`&amp;`).replaceAll(`<`,`&lt;`).replaceAll(`>`,`&gt;`).replaceAll(`"`,`&quot;`),I=e=>Number(e||0).toFixed(2),L=e=>e.unidad===`KG`?Number(e.cantidad).toFixed(3):Number(e.cantidad).toFixed(2),R=e=>String(e.id??e.numero??``).replace(/^V-0*/,``),z=e=>e.usuario?.username||e.usuario_nombre||``;function B(e,t){let n=t.siat_portal_url||`https://siat.impuestos.gob.bo/`,r=new URL(`consulta/QR`,n.endsWith(`/`)?n:`${n}/`);return r.search=new URLSearchParams({nit:t.nit||``,cuf:e.cuf||``,numero:R(e),t:`1`}).toString(),r.toString()}function V(e){let t=r();if(!t.nit||!e.cuf)throw Error(`La factura no tiene NIT o CUF para consultarla en Impuestos`);window.open(B(e,t),`_blank`,`noopener,noreferrer`)}function H(e){return(e.detalles||[]).map(e=>`
     <tr><td colspan="2" class="product">${F(e.codigo_barras||e.codigo)} - ${F(e.nombre)}</td></tr>
     <tr><td class="muted">Unidad de medida: ${F(e.unidad||`Unidad`)}</td><td></td></tr>
     <tr><td class="muted">${L(e)} X ${I(e.precio_venta)} - ${I(e.descuento)}</td><td class="right">${I(e.total)}</td></tr>
-  `).join(``)}function H(e,t,n,r){let i=e.fecha_emision_siat||e.fecha;return`<div class="ticket">
+  `).join(``)}function U(e,t,n,r){let i=e.fecha_emision_siat||e.fecha,a=e.estado_siat===`PENDIENTE_EVENTO`;return`<div class="ticket">
     ${n?`<img class="logo" src="${F(n)}" alt="Logo">`:``}
     <div class="center">
       <div class="title">FACTURA</div><div class="subtitle">CON DERECHO A CRÉDITO FISCAL</div>
@@ -37,7 +37,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:2px 1px;vertical-align:t
     <div class="field"><span class="field-label">FECHA DE EMISIÓN:</span><span>${i?new Date(i).toLocaleString(`es-BO`):``}</span></div>
     <div class="field"><span class="field-label">USUARIO:</span><span>${F(z(e))}</span></div>
     <div class="line"></div><div class="center bold">DETALLE</div>
-    <table><tbody>${V(e)}</tbody></table>
+    <table><tbody>${H(e)}</tbody></table>
     <table class="totals">
       <tr><td>TOTAL Bs</td><td class="right">${I(e.subtotal)}</td></tr>
       <tr><td>(-) DESCUENTO Bs</td><td class="right">${I(e.descuento)}</td></tr>
@@ -47,11 +47,12 @@ table{width:100%;border-collapse:collapse}th,td{padding:2px 1px;vertical-align:t
     <div class="amount-words">Son: ${I(e.total)} Bolivianos</div><div class="line"></div>
     <div class="center legal">ESTA FACTURA CONTRIBUYE AL DESARROLLO DEL PAÍS, EL USO ILÍCITO SERÁ SANCIONADO PENALMENTE DE ACUERDO A LEY</div>
     <div class="center legal">${F(e.leyenda||`Ley N° 453: Tienes derecho a recibir información sobre las características y contenidos de los productos que consumes.`)}</div>
-    <div class="center legal">“Este documento es la Representación Gráfica de un Documento Fiscal Digital emitido en una modalidad de facturación en línea”</div>
+    <div class="center legal bold">${a?`“Este documento es la Representación Gráfica de un Documento Fiscal Digital emitido fuera de línea. Verifique posteriormente su envío con su proveedor o en www.impuestos.gob.bo”`:`“Este documento es la Representación Gráfica de un Documento Fiscal Digital emitido en una modalidad de facturación en línea”`}</div>
+    ${a?`<div class="center bold" style="color:#e65100;font-size:13px">EMITIDA FUERA DE LÍNEA</div>`:``}
     <img class="qr" src="${r}" alt="QR de consulta SIAT">
     ${e.estado===`ANULADA`||e.estado_siat===`ANULADA`?`<div class="cancelled">ANULADA</div>`:``}
-  </div>`}function U(e,t,n){let r=(e.detalles||[]).map(e=>`<tr><td>${F(e.nombre)}<br><span class="muted">${L(e)} ${F(e.unidad)} X ${I(e.precio_venta)}</span></td><td class="right">${I(e.total)}</td></tr>`).join(``);return`<div class="ticket"><img class="logo" src="${F(n)}" alt="Logo"><div class="center"><div class="title">${F(t.nombre_empresa||`Area Fresca`)}</div>${F(t.direccion||``)}<br>Tel. ${F(t.telefono||``)}<br><b>RECIBO</b></div><div class="line"></div>
+  </div>`}function W(e,t,n){let r=(e.detalles||[]).map(e=>`<tr><td>${F(e.nombre)}<br><span class="muted">${L(e)} ${F(e.unidad)} X ${I(e.precio_venta)}</span></td><td class="right">${I(e.total)}</td></tr>`).join(``);return`<div class="ticket"><img class="logo" src="${F(n)}" alt="Logo"><div class="center"><div class="title">${F(t.nombre_empresa||`Area Fresca`)}</div>${F(t.direccion||``)}<br>Tel. ${F(t.telefono||``)}<br><b>RECIBO</b></div><div class="line"></div>
     <b>${F(e.numero)}</b><br>Fecha: ${new Date(e.fecha).toLocaleString(`es-BO`)}<br>Cajero: ${F(z(e))}<br>Pago: ${F(e.tipo_pago)}
     <div class="line"></div><table><tbody>${r}</tbody></table><div class="line"></div>
     <table class="totals"><tr><td>Subtotal</td><td class="right">${I(e.subtotal)}</td></tr><tr><td>Descuento</td><td class="right">-${I(e.descuento)}</td></tr><tr class="highlight"><td>TOTAL Bs</td><td class="right">${I(e.total)}</td></tr></table>
-    ${e.estado===`ANULADA`?`<div class="cancelled">ANULADA</div>`:``}<div class="line"></div><div class="center">¡Gracias por su compra!</div></div>`}async function W(e){let t=r(),n=t.logo_url||`${window.location.origin}/bean-logo.svg`,i=e.tipo_comprobante===`FACTURA`,a;a=i&&e.cuf?H(e,t,n,await N.toDataURL(B(e,t),{width:320,margin:1,errorCorrectionLevel:`M`})):U(e,t,n);let o=document.createElement(`div`);o.innerHTML=a,new M.Printd().print(o,[P])}export{W as t};
+    ${e.estado===`ANULADA`?`<div class="cancelled">ANULADA</div>`:``}<div class="line"></div><div class="center">¡Gracias por su compra!</div></div>`}async function G(e){let t=r(),n=t.logo_url||`${window.location.origin}/bean-logo.svg`,i=e.tipo_comprobante===`FACTURA`,a;a=i&&e.cuf?U(e,t,n,await N.toDataURL(B(e,t),{width:320,margin:1,errorCorrectionLevel:`M`})):W(e,t,n);let o=document.createElement(`div`);o.innerHTML=a,new M.Printd().print(o,[P])}export{G as n,V as t};

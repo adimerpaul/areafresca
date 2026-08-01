@@ -22,7 +22,8 @@ class SiatEventoSignificativoController extends Controller
             'descripcion' => ['required', 'string', 'max:255'],
             'fecha_inicio' => ['required', 'date'],
             'fecha_fin' => ['required', 'date', 'after_or_equal:fecha_inicio'],
+            'venta_id' => ['nullable', 'integer', 'exists:ventas,id'],
         ]);
-        return response()->json($service->process((int) $data['codigo_motivo'], $data['descripcion'], $data['fecha_inicio'], $data['fecha_fin']), 201);
+        return response()->json($service->process((int) $data['codigo_motivo'], $data['descripcion'], $data['fecha_inicio'], $data['fecha_fin'], $data['venta_id'] ?? null), 201);
     }
 }

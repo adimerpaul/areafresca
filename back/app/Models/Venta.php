@@ -16,7 +16,7 @@ class Venta extends Model implements AuditableContract
         'total', 'tipo_pago', 'monto_efectivo', 'monto_qr',
         'estado', 'observacion', 'fecha', 'tipo_documento', 'numero_documento',
         'complemento', 'cliente_nombre', 'cliente_email', 'tipo_comprobante',
-        'estado_siat', 'cuf', 'cufd', 'codigo_recepcion', 'xml_path',
+        'estado_siat', 'online', 'cuf', 'cufd', 'codigo_recepcion', 'xml_path',
         'siat_mensaje', 'fecha_emision_siat', 'pdf_path', 'email_enviado_en', 'email_error',
     ];
 
@@ -25,6 +25,7 @@ class Venta extends Model implements AuditableContract
         'total' => 'decimal:2', 'monto_efectivo' => 'decimal:2',
         'monto_qr' => 'decimal:2', 'fecha' => 'datetime', 'fecha_emision_siat' => 'datetime',
         'email_enviado_en' => 'datetime',
+        'online' => 'boolean',
     ];
 
     public function detalles()

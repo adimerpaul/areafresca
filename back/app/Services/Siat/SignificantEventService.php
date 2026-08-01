@@ -27,15 +27,17 @@ class SignificantEventService
 
     public function __construct(private SiatService $siat, private InvoiceDeliveryService $delivery) {}
 
-    public function process(int $reason, string $description, $start, $end): SiatEventoSignificativo
+    public function process(int $reason, string $description, $start, $end, ?int $saleId = null): SiatEventoSignificativo
     {
         set_time_limit(180);
-        $sales = Venta::with(['detalles', 'cliente', 'usuario'])
+        $salesQuery = Venta::with(['detalles', 'cliente', 'usuario'])
             ->where('tipo_comprobante', 'FACTURA')
+            ->where('online', false)
             ->where('estado_siat', 'PENDIENTE_EVENTO')
             ->whereBetween('fecha_emision_siat', [$start, $end])
-            ->whereNotNull('xml_path')
-            ->get();
+            ->whereNotNull('xml_path');
+        if ($saleId) $salesQuery->whereKey($saleId);
+        $sales = $salesQuery->get();
         if ($sales->isEmpty()) throw new RuntimeException('No existen facturas pendientes dentro del periodo indicado');
 
         [$cuis, $currentCufd] = $this->siat->ensureCredentials();
@@ -58,7 +60,7 @@ class SignificantEventService
             $validation = $this->validatePackage($currentCufd->codigo, $cuis->codigo, $receptionCode);
             $event->update(['estado' => 'VALIDADO', 'mensaje' => $validation]);
             foreach ($sales as $sale) {
-                $sale->update(['estado_siat' => 'VALIDADA', 'codigo_recepcion' => $receptionCode, 'siat_mensaje' => $validation]);
+                $sale->update(['estado_siat' => 'VALIDADA', 'online' => true, 'codigo_recepcion' => $receptionCode, 'siat_mensaje' => $validation]);
                 try {
                     $this->delivery->generatePdf($sale->fresh());
                     $this->delivery->send($sale->fresh());

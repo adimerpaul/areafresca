@@ -299,6 +299,13 @@ class VentaController extends Controller
         if ($userId = $request->integer('user_id')) {
             $query->where('user_id', $userId);
         }
+        if ($request->input('envio') === 'pendientes') {
+            $query->where('tipo_comprobante', 'FACTURA')->where('online', false)
+                ->where('estado_siat', 'PENDIENTE_EVENTO')->whereNotNull('cuf')
+                ->whereNotNull('xml_path')->whereNotNull('fecha_emision_siat');
+        } elseif ($request->input('envio') === 'enviadas') {
+            $query->where('tipo_comprobante', 'FACTURA')->where('online', true);
+        }
 
         return $query;
     }

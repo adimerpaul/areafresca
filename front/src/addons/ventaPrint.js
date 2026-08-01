@@ -33,9 +33,19 @@ function qrUrl (sale, company) {
     nit: company.nit || '',
     cuf: sale.cuf || '',
     numero: invoiceNumber(sale),
-    t: '2',
+    t: '1',
   }).toString()
   return url.toString()
+}
+
+export function openSiatInvoice (sale) {
+  const company = companyData()
+
+  if (!company.nit || !sale.cuf) {
+    throw new Error('La factura no tiene NIT o CUF para consultarla en Impuestos')
+  }
+
+  window.open(qrUrl(sale, company), '_blank', 'noopener,noreferrer')
 }
 
 function detailRows (sale) {
@@ -48,6 +58,7 @@ function detailRows (sale) {
 
 function invoiceMarkup (sale, company, logoUrl, qrDataUrl) {
   const issuedAt = sale.fecha_emision_siat || sale.fecha
+  const offline = sale.estado_siat === 'PENDIENTE_EVENTO'
   return `<div class="ticket">
     ${logoUrl ? `<img class="logo" src="${esc(logoUrl)}" alt="Logo">` : ''}
     <div class="center">
@@ -75,7 +86,8 @@ function invoiceMarkup (sale, company, logoUrl, qrDataUrl) {
     <div class="amount-words">Son: ${money(sale.total)} Bolivianos</div><div class="line"></div>
     <div class="center legal">ESTA FACTURA CONTRIBUYE AL DESARROLLO DEL PAÍS, EL USO ILÍCITO SERÁ SANCIONADO PENALMENTE DE ACUERDO A LEY</div>
     <div class="center legal">${esc(sale.leyenda || 'Ley N° 453: Tienes derecho a recibir información sobre las características y contenidos de los productos que consumes.')}</div>
-    <div class="center legal">“Este documento es la Representación Gráfica de un Documento Fiscal Digital emitido en una modalidad de facturación en línea”</div>
+    <div class="center legal bold">${offline?'“Este documento es la Representación Gráfica de un Documento Fiscal Digital emitido fuera de línea. Verifique posteriormente su envío con su proveedor o en www.impuestos.gob.bo”':'“Este documento es la Representación Gráfica de un Documento Fiscal Digital emitido en una modalidad de facturación en línea”'}</div>
+    ${offline?'<div class="center bold" style="color:#e65100;font-size:13px">EMITIDA FUERA DE LÍNEA</div>':''}
     <img class="qr" src="${qrDataUrl}" alt="QR de consulta SIAT">
     ${sale.estado === 'ANULADA' || sale.estado_siat === 'ANULADA' ? '<div class="cancelled">ANULADA</div>' : ''}
   </div>`

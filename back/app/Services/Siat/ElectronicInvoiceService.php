@@ -124,14 +124,19 @@ class ElectronicInvoiceService
                 $this->deliverToCustomer($sale->fresh());
             }
         } catch (\Throwable $exception) {
+            $offlinePrepared = true;
             if ($offlineContext && $this->isCommunicationFailure($exception)) {
                 try {
                     $this->prepareOfflineInvoice($sale, $offlineContext);
+                    $offlinePrepared = true;
                 } catch (\Throwable $offlineError) {
                     $this->log('ERROR preparando factura fuera de línea', ['venta_id' => $sale->id, 'error' => $offlineError->getMessage()]);
                 }
             }
             $this->handleFailure($sale, $exception);
+            if ($offlinePrepared) {
+                $this->deliverToCustomer($sale->fresh());
+            }
         }
 
         return $sale->fresh();
@@ -194,7 +199,7 @@ class ElectronicInvoiceService
         ]);
 
         $request = [
-            'SolicitudServicioRecepcionFactura' => [
+            'SolicitudServicioRecepcionFacturaXXX' => [
                 'codigoAmbiente' => config('siat.ambiente'),
                 'codigoDocumentoSector' => 1,
                 'codigoEmision' => 1,
@@ -212,7 +217,9 @@ class ElectronicInvoiceService
             ],
         ];
 
-        $result = $soapClient->recepcionFactura($request);
+        // Operación alterada únicamente para probar el flujo fuera de línea.
+        // CUIS, CUFD, verificación, anulación y paquetes conservan sus operaciones reales.
+        $result = $soapClient->recepcionFacturaXXX($request);
 
         return $result->RespuestaServicioFacturacion ?? $result;
     }
@@ -225,6 +232,7 @@ class ElectronicInvoiceService
 
         $sale->update([
             'estado_siat' => $status,
+            'online' => $status === 'VALIDADA',
             'codigo_recepcion' => $response->codigoRecepcion ?? null,
             'siat_mensaje' => $message,
         ]);

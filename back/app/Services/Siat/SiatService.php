@@ -158,6 +158,7 @@ class SiatService
         ]);
         $sale->update([
             'estado_siat' => ((int) ($response->codigoEstado ?? 0) === 908) ? 'VALIDADA' : $sale->estado_siat,
+            'online' => ((int) ($response->codigoEstado ?? 0) === 908) ? true : $sale->online,
             'siat_mensaje' => $this->responseDescription($response),
         ]);
 

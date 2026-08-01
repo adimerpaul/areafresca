@@ -5,7 +5,12 @@
     </div>
     <div style="padding:22px;border:1px solid #eceff1;border-top:0;border-radius:0 0 12px 12px">
         <p>Estimado(a) {{ $sale->cliente_nombre ?: 'cliente' }},</p>
-        <p>Su factura electrónica fue validada por Impuestos Nacionales. Adjuntamos la representación gráfica en PDF y el archivo XML firmado.</p>
+        @if($sale->estado_siat === 'PENDIENTE_EVENTO')
+            <p>Su factura electrónica fue emitida <b>fuera de línea</b> debido a un evento significativo. Adjuntamos la representación gráfica en PDF y el archivo XML firmado.</p>
+            <p style="background:#fff3e0;color:#e65100;padding:10px;border-radius:6px"><b>Importante:</b> la factura será enviada a Impuestos Nacionales mediante un paquete cuando se restablezca la comunicación.</p>
+        @else
+            <p>Su factura electrónica fue validada por Impuestos Nacionales. Adjuntamos la representación gráfica en PDF y el archivo XML firmado.</p>
+        @endif
         <div style="background:#fff8e1;padding:14px;border-radius:8px">
             <div><b>Factura:</b> N° {{ $sale->id }}</div>
             <div><b>Fecha:</b> {{ optional($sale->fecha_emision_siat ?: $sale->fecha)->format('d/m/Y H:i') }}</div>
