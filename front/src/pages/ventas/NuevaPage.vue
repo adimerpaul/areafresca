@@ -77,7 +77,7 @@
       </q-card>
     </q-dialog>
 
-    <q-dialog v-model="checkoutDialog" :maximized="$q.screen.lt.sm">
+    <q-dialog v-model="checkoutDialog" :maximized="$q.screen.lt.sm" @hide="focusSearch">
       <q-card class="column no-wrap" style="width:760px;max-width:94vw;max-height:92vh">
         <q-card-section class="row items-center q-pa-sm bg-primary text-white"><q-avatar color="white" text-color="primary" icon="receipt_long" size="32px"/><div class="q-ml-sm"><div class="text-subtitle1 text-weight-bold">Confirmar venta</div><div class="text-caption">Cliente, pago y resumen</div></div><q-space/><q-btn flat round dense icon="close" color="white" v-close-popup/></q-card-section>
         <q-card-section class="col scroll q-pa-sm">
@@ -97,14 +97,14 @@
           <div v-if="paymentType==='COMBINADO'" class="text-caption q-mt-xs" :class="paymentDifference===0?'text-positive':'text-negative'">Diferencia por distribuir: Bs {{money(paymentDifference)}}</div>
           <div class="row items-center q-mt-sm q-pa-sm rounded-borders bg-blue-grey-9 text-white"><div><div class="text-caption">TOTAL A COBRAR</div><div class="text-h5 text-weight-bold">Bs {{money(total)}}</div></div><q-space/><div class="text-right text-caption">{{itemCount}} productos · Descuento Bs {{money(validDiscount)}}</div></div>
         </q-card-section>
-        <q-separator/><q-card-actions align="right" class="q-pa-sm bg-white"><q-btn flat dense label="Volver" no-caps v-close-popup/><q-btn color="positive" dense unelevated icon="save" label="Guardar venta" no-caps :loading="saving" @click="confirmSale"/></q-card-actions>
+        <q-separator/><q-card-actions align="right" class="q-pa-sm bg-white"><q-btn flat dense label="Volver" no-caps v-close-popup/><q-btn color="positive" dense unelevated icon="save" label="Guardar venta · Enter" no-caps :loading="saving" @click="confirmSale"/></q-card-actions>
       </q-card>
     </q-dialog>
   </q-page>
 </template>
 
 <script setup>
-import { computed, getCurrentInstance, onMounted, ref, watch } from 'vue'
+import { computed, getCurrentInstance, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { printSale } from '../../addons/ventaPrint'
 import CompanyBanner from '../../components/CompanyBanner.vue'
 const {proxy}=getCurrentInstance()
@@ -115,7 +115,7 @@ const productsPerPage=20
 const paymentType=ref('EFECTIVO'),paymentTypes=['EFECTIVO','QR','COMBINADO'],cashAmount=ref(0),qrAmount=ref(0)
 const documentType=ref('CI'),documentNumber=ref('0'),documentComplement=ref(''),customerName=ref(''),customerEmail=ref(''),customerPhone=ref(''),customerAddress=ref('')
 const checkoutDialog=ref(false),clientLoading=ref(false),clientFound=ref(false)
-let processingBarcode=false,clientSearchTimer=null,productsSearchTimer=null
+let processingBarcode=false,clientSearchTimer=null,productsSearchTimer=null,checkoutOpenedAt=0
 const photoUrl=path=>`${proxy.$imgBase}/images/${path}`,money=v=>Number(v||0).toFixed(2)
 const isWeighted=item=>item?.unidad==='KG',quantityStep=item=>isWeighted(item)?0.001:1,minimumQty=item=>quantityStep(item)
 const quantity=(value,unit)=>Number(value||0).toFixed(unit==='KG'?3:0)
@@ -144,10 +144,12 @@ function syncLineTotal(item){item.total_editable=(Number(item.precio_venta||0)*N
 function applyLineTotal(item){const totalValue=Math.max(0,Number(item.total_editable)||0),lineQuantity=Math.max(minimumQty(item),Number(item.cantidad)||minimumQty(item));item.total_editable=totalValue.toFixed(2);item.precio_venta=Number((totalValue/lineQuantity).toFixed(4))}
 function removeItem(item){cart.value=cart.value.filter(i=>i.id!==item.id)}
 function clearCart(){proxy.$alert.dialog('¿Eliminar todos los productos del carrito?').onOk(()=>{cart.value=[];proxy.$alert.success('Carrito vaciado');searchInput.value?.focus()})}
-function openCheckout(){cart.value.forEach(item=>{const requestedTotal=item.total_editable;validateQty(item);item.total_editable=requestedTotal;applyLineTotal(item)});if(cart.value.some(i=>Number(i.precio_venta)<0||i.precio_venta===''))return proxy.$alert.error('Revisa los precios de venta');checkoutDialog.value=true}
+function openCheckout(){cart.value.forEach(item=>{const requestedTotal=item.total_editable;validateQty(item);item.total_editable=requestedTotal;applyLineTotal(item)});if(cart.value.some(i=>Number(i.precio_venta)<0||i.precio_venta===''))return proxy.$alert.error('Revisa los precios de venta');checkoutOpenedAt=Date.now();checkoutDialog.value=true}
+function handleSaleKeyboard(event){if(event.key!=='Enter'||!checkoutDialog.value||productDialog.value||saving.value||Date.now()-checkoutOpenedAt<250)return;event.preventDefault();event.stopPropagation();confirmSale()}
 async function findCustomer(){clientLoading.value=true;try{const {data}=await proxy.$axios.get('/clientes/buscar',{params:{tipo_documento:documentType.value,numero_documento:String(documentNumber.value).trim()}});const customer=data.cliente;if(customer){documentComplement.value=customer.complemento||'';customerName.value=customer.nombre||'';customerEmail.value=customer.email||'';customerPhone.value=customer.telefono||'';customerAddress.value=customer.direccion||'';clientFound.value=true}}catch(e){proxy.$alert.error(e.response?.data?.message||'No se pudo buscar al cliente')}finally{clientLoading.value=false}}
-async function confirmSale(){if(paymentType.value==='COMBINADO'&&paymentDifference.value!==0)return proxy.$alert.error('Efectivo y QR deben sumar el total');if(documentNumber.value!=='0'&&!customerName.value)return proxy.$alert.error('Ingresa el nombre o razón social');saving.value=true;try{const {data}=await proxy.$axios.post('/ventas',{descuento:validDiscount.value,tipo_pago:paymentType.value,monto_efectivo:cashAmount.value,monto_qr:qrAmount.value,observacion:observation.value,tipo_documento:documentType.value,numero_documento:documentNumber.value||'0',complemento:documentComplement.value||null,cliente_nombre:customerName.value||null,cliente_email:customerEmail.value||null,cliente_telefono:customerPhone.value||null,cliente_direccion:customerAddress.value||null,detalles:cart.value.map(i=>({producto_id:i.id,cantidad:i.cantidad,precio_venta:i.precio_venta}))});checkoutDialog.value=false;if(data.tipo_comprobante==='FACTURA'&&data.estado_siat!=='VALIDADA')proxy.$alert.error(`Venta guardada. Factura ${data.estado_siat}: ${data.siat_mensaje||'pendiente'}`);else proxy.$alert.success(`Venta ${data.numero} registrada`);printSale(data);cart.value=[];discount.value=0;observation.value='';documentNumber.value='0';documentComplement.value='';customerName.value='';customerEmail.value='';customerPhone.value='';customerAddress.value='';clientFound.value=false;paymentType.value='EFECTIVO';loadProducts();searchInput.value?.focus()}catch(e){proxy.$alert.error(Object.values(e.response?.data?.errors||{})[0]?.[0]||e.response?.data?.message||'No se pudo registrar la venta')}finally{saving.value=false}}
-onMounted(()=>{loadProducts();proxy.$axios.get('/productos-catalogos').then(r=>categories.value=r.data.categorias)})
+async function confirmSale(){if(saving.value)return;if(paymentType.value==='COMBINADO'&&paymentDifference.value!==0)return proxy.$alert.error('Efectivo y QR deben sumar el total');if(documentNumber.value!=='0'&&!customerName.value)return proxy.$alert.error('Ingresa el nombre o razón social');saving.value=true;try{const {data}=await proxy.$axios.post('/ventas',{descuento:validDiscount.value,tipo_pago:paymentType.value,monto_efectivo:cashAmount.value,monto_qr:qrAmount.value,observacion:observation.value,tipo_documento:documentType.value,numero_documento:documentNumber.value||'0',complemento:documentComplement.value||null,cliente_nombre:customerName.value||null,cliente_email:customerEmail.value||null,cliente_telefono:customerPhone.value||null,cliente_direccion:customerAddress.value||null,detalles:cart.value.map(i=>({producto_id:i.id,cantidad:i.cantidad,precio_venta:i.precio_venta}))});checkoutDialog.value=false;if(data.tipo_comprobante==='FACTURA'&&data.estado_siat!=='VALIDADA')proxy.$alert.error(`Venta guardada. Factura ${data.estado_siat}: ${data.siat_mensaje||'pendiente'}`);else proxy.$alert.success(`Venta ${data.numero} registrada`);printSale(data);cart.value=[];discount.value=0;observation.value='';documentNumber.value='0';documentComplement.value='';customerName.value='';customerEmail.value='';customerPhone.value='';customerAddress.value='';clientFound.value=false;paymentType.value='EFECTIVO';loadProducts();searchInput.value?.focus()}catch(e){proxy.$alert.error(Object.values(e.response?.data?.errors||{})[0]?.[0]||e.response?.data?.message||'No se pudo registrar la venta')}finally{saving.value=false}}
+onMounted(()=>{window.addEventListener('keydown',handleSaleKeyboard);loadProducts();proxy.$axios.get('/productos-catalogos').then(r=>categories.value=r.data.categorias)})
+onBeforeUnmount(()=>window.removeEventListener('keydown',handleSaleKeyboard))
 </script>
 
 <style scoped>
