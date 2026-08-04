@@ -136,14 +136,18 @@ const links = [
   { title: 'Nueva compra', icon: 'add_business', link: '/compras/nueva', can: 'Crear Compras' },
   { title: 'Compras', icon: 'shopping_bag', link: '/compras', can: 'Ver Compras' },
   { title: 'Proveedores', icon: 'groups', link: '/proveedores', can: 'Ver Compras' },
-  { title: 'Por vencer', icon: 'schedule', link: '/productos/por-vencer', can: 'Ver Compras' },
-  { title: 'Vencidos', icon: 'event_busy', link: '/productos/vencidos', can: 'Ver Compras' },
+  { title: 'Almacenes', icon: 'warehouse', link: '/almacenes', can: 'Ver Almacenes' },
+  { title: 'Nueva baja', icon: 'remove_circle_outline', link: '/bajas/nueva', can: 'Crear Bajas' },
+  { title: 'Bajas', icon: 'delete_forever', link: '/bajas', can: 'Ver Bajas' },
+  { title: 'Por vencer', icon: 'schedule', link: '/productos/por-vencer', can: ['Ver Compras', 'Ver Almacenes'] },
+  { title: 'Vencidos', icon: 'event_busy', link: '/productos/vencidos', can: ['Ver Compras', 'Ver Almacenes'] },
   { title: 'Configuración', icon: 'settings', link: '/configuracion', can: 'Gestionar Configuración' },
   { title: 'Firma digital', icon: 'verified_user', link: '/firma-digital', can: 'Gestionar Configuración' },
 ]
 
 const visibleLinks = computed(() =>
-  links.filter(link => link.can === null || proxy.$store.hasPermission(link.can))
+  links.filter(link => link.can === null ||
+    (Array.isArray(link.can) ? link.can.some(p => proxy.$store.hasPermission(p)) : proxy.$store.hasPermission(link.can)))
 )
 
 function toggleLeftDrawer () {

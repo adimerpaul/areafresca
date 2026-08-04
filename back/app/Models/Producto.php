@@ -13,7 +13,8 @@ class Producto extends Model implements AuditableContract
 
     protected $fillable = [
         'codigo', 'codigo_barras', 'nombre', 'categoria', 'categoria_id', 'unidad',
-        'precio_compra', 'precio_venta', 'stock_inicial', 'fecha_registro', 'foto',
+        'precio_compra', 'precio_venta', 'precio_1', 'precio_2', 'precio_3',
+        'stock_inicial', 'fecha_registro', 'foto',
     ];
 
     public function categoriaRelacion()
@@ -24,6 +25,9 @@ class Producto extends Model implements AuditableContract
     protected $casts = [
         'precio_compra' => 'decimal:2',
         'precio_venta' => 'decimal:2',
+        'precio_1' => 'decimal:2',
+        'precio_2' => 'decimal:2',
+        'precio_3' => 'decimal:2',
         'stock_inicial' => 'decimal:3',
         'fecha_registro' => 'date',
     ];

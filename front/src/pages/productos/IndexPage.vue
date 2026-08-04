@@ -30,6 +30,9 @@
         <template #body-cell-foto="p"><q-td :props="p" class="drop-photo" @dragover.prevent @drop.prevent="dropPhoto($event,p.row)"><q-avatar rounded size="30px" color="grey-2"><img v-if="p.row.foto" :src="photoUrl(p.row.foto)"/><q-icon v-else name="add_photo_alternate" color="grey-5"/></q-avatar><q-tooltip>Arrastra aquí una imagen o URL</q-tooltip></q-td></template>
         <template #body-cell-precio_compra="p"><q-td :props="p">Bs {{ money(p.value) }}</q-td></template>
         <template #body-cell-precio_venta="p"><q-td :props="p">Bs {{ money(p.value) }}</q-td></template>
+        <template #body-cell-precio_1="p"><q-td :props="p">Bs {{ money(p.value) }}</q-td></template>
+        <template #body-cell-precio_2="p"><q-td :props="p">Bs {{ money(p.value) }}</q-td></template>
+        <template #body-cell-precio_3="p"><q-td :props="p">Bs {{ money(p.value) }}</q-td></template>
         <template #body-cell-codigo_barras="p"><q-td :props="p"><q-input v-model="p.row.codigo_barras" dense borderless placeholder="Escanear o escribir" input-class="text-caption" @keyup.enter="$event.target.blur()" @blur="saveBarcode(p.row)"><template #append><q-icon name="qr_code_scanner" size="16px"/></template></q-input></q-td></template>
         <template #body-cell-stock_inicial="p">
           <q-td :props="p"><q-badge :color="p.value > 10 ? 'positive' : 'orange'" :label="p.value" /></q-td>
@@ -75,6 +78,12 @@
                      outlined dense label="Precio venta *" prefix="Bs" class="col-12 col-sm-4" :rules="[nonNegative]" />
             <q-input v-model.number="form.stock_inicial" type="number" min="0" :step="form.unidad==='KG'?0.001:1"
                      outlined dense :label="form.unidad==='KG'?'Stock inicial (kg) *':'Stock inicial *'" class="col-12 col-sm-4" :rules="[nonNegative]" />
+            <q-input v-model.number="form.precio_1" type="number" step="0.01" min="0"
+                     outlined dense label="Precio 1" prefix="Bs" class="col-12 col-sm-4" :rules="[nonNegative]" hint="Escala oficial de venta al público" />
+            <q-input v-model.number="form.precio_2" type="number" step="0.01" min="0"
+                     outlined dense label="Precio 2" prefix="Bs" class="col-12 col-sm-4" :rules="[nonNegative]" />
+            <q-input v-model.number="form.precio_3" type="number" step="0.01" min="0"
+                     outlined dense label="Precio 3" prefix="Bs" class="col-12 col-sm-4" :rules="[nonNegative]" />
             </div>
           </q-card-section>
           <q-card-actions align="right">
@@ -121,7 +130,7 @@ const unitOptions = ref(['GR', 'KG', 'ML', 'LT', 'UNIDAD'])
 const stockStatusOptions=[{label:'Todos',value:null},{label:'Sin stock',value:'sin_stock'},{label:'Stock bajo (1 a 10)',value:'bajo'},{label:'Disponible (más de 10)',value:'disponible'}]
 const sortOptions=[{label:'Nombre A–Z',value:'nombre_asc'},{label:'Nombre Z–A',value:'nombre_desc'},{label:'Mayor stock',value:'stock_desc'},{label:'Menor stock',value:'stock_asc'},{label:'Mayor precio',value:'precio_desc'},{label:'Menor precio',value:'precio_asc'}]
 const pagination = ref({ page: 1, rowsPerPage: 20, rowsNumber: 0 })
-const empty = () => ({ id: null, codigo: '', codigo_barras: '', nombre: '', categoria_id: null, unidad: 'UNIDAD', precio_compra: 0, precio_venta: 0, stock_inicial: 0, foto: null, foto_url: '' })
+const empty = () => ({ id: null, codigo: '', codigo_barras: '', nombre: '', categoria_id: null, unidad: 'UNIDAD', precio_compra: 0, precio_venta: 0, precio_1: 0, precio_2: 0, precio_3: 0, stock_inicial: 0, foto: null, foto_url: '' })
 const form = reactive(empty())
 const categoryForm = reactive({ id:null, nombre:'', color:'primary' })
 const colorOptions=['primary','blue','light-blue','purple','amber','orange','red','pink','brown','blue-grey','green']
@@ -135,6 +144,9 @@ const columns = [
   { name:'unidad', label:'Unidad', field:'unidad', align:'center' },
   { name:'precio_compra', label:'P. compra', field:'precio_compra', align:'right' },
   { name:'precio_venta', label:'P. venta', field:'precio_venta', align:'right' },
+  { name:'precio_1', label:'Precio 1', field:'precio_1', align:'right' },
+  { name:'precio_2', label:'Precio 2', field:'precio_2', align:'right' },
+  { name:'precio_3', label:'Precio 3', field:'precio_3', align:'right' },
   { name:'stock_inicial', label:'Stock inicial', field:'stock_inicial', align:'center' }
 ].filter(column => column.name !== 'codigo')
 const can = p => proxy.$store.hasPermission(p)

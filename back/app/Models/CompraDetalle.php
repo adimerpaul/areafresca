@@ -15,4 +15,9 @@ class CompraDetalle extends Model
         'fecha_vencimiento' => 'date', 'cantidad' => 'decimal:3',
         'precio_unitario' => 'decimal:4', 'total' => 'decimal:2',
     ];
+
+    public function compra()
+    {
+        return $this->belongsTo(Compra::class);
+    }
 }

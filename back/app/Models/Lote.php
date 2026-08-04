@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class Lote extends Model
 {
     protected $fillable = [
-        'producto_id', 'compra_detalle_id', 'lote', 'fecha_vencimiento',
+        'producto_id', 'compra_detalle_id', 'almacen_detalle_id', 'lote', 'fecha_vencimiento',
         'cantidad_inicial', 'cantidad_disponible',
     ];
 
@@ -19,5 +19,15 @@ class Lote extends Model
     public function producto()
     {
         return $this->belongsTo(Producto::class);
+    }
+
+    public function compraDetalle()
+    {
+        return $this->belongsTo(CompraDetalle::class, 'compra_detalle_id');
+    }
+
+    public function almacenDetalle()
+    {
+        return $this->belongsTo(AlmacenDetalle::class, 'almacen_detalle_id');
     }
 }

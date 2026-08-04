@@ -94,6 +94,8 @@ const permissionGroupDefinitions=[
   {name:'Productos',matches:['Productos']},
   {name:'Ventas',matches:['Ventas']},
   {name:'Compras',matches:['Compras']},
+  {name:'Almacén',matches:['Almacenes']},
+  {name:'Bajas',matches:['Bajas']},
   {name:'Configuración',matches:['Configuración']},
   {name:'Facturación SIAT',matches:['SIAT','Factura']},
 ]

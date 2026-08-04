@@ -21,12 +21,15 @@ class ProductosExport implements FromCollection, ShouldAutoSize, WithHeadings
             $product->unidad,
             $product->precio_compra,
             $product->precio_venta,
+            $product->precio_1,
+            $product->precio_2,
+            $product->precio_3,
             $product->stock_inicial,
         ]);
     }
 
     public function headings(): array
     {
-        return ['Código', 'Código de barras', 'Producto', 'Categoría', 'Unidad', 'Precio compra', 'Precio venta', 'Stock'];
+        return ['Código', 'Código de barras', 'Producto', 'Categoría', 'Unidad', 'Precio compra', 'Precio venta', 'Precio 1', 'Precio 2', 'Precio 3', 'Stock'];
     }
 }
