@@ -13,7 +13,7 @@
 
     <q-card flat bordered>
       <q-card-section class="row q-col-gutter-sm q-pa-sm">
-        <q-input v-model="filters.q" dense outlined clearable debounce="300" class="col-12 col-sm" placeholder="Buscar nÃºmero, usuario o motivo" @update:model-value="reload"><template #prepend><q-icon name="search"/></template></q-input>
+        <q-input v-model="filters.q" dense outlined clearable debounce="300" class="col-12 col-sm" placeholder="Buscar número, usuario o motivo" @update:model-value="reload"><template #prepend><q-icon name="search"/></template></q-input>
         <q-input v-model="filters.desde" dense outlined type="date" label="Desde" stack-label class="col-6 col-sm-2" @update:model-value="reload"/>
         <q-input v-model="filters.hasta" dense outlined type="date" label="Hasta" stack-label class="col-6 col-sm-2" @update:model-value="reload"/>
         <q-select v-model="filters.motivo_id" :options="motives" option-label="nombre" option-value="id" emit-value map-options dense outlined clearable label="Motivo" class="col-6 col-sm-2" @update:model-value="reload"/>
@@ -36,10 +36,10 @@
 
     <q-dialog v-model="detailDialog">
       <q-card style="width:680px;max-width:94vw">
-        <q-card-section class="row items-center q-py-sm bg-negative text-white"><q-avatar color="white" text-color="negative" icon="delete_forever" size="32px"/><div class="q-ml-sm"><div class="text-subtitle1 text-weight-bold">{{detail.numero}}</div><div class="text-caption">{{detail.motivo}} Â· {{formatDate(detail.fecha)}}</div></div><q-space/><q-btn flat dense icon="print" label="Imprimir" no-caps color="white" class="q-mr-xs" @click="printBaja(detail)"/><q-btn flat round dense icon="close" color="white" v-close-popup/></q-card-section>
+        <q-card-section class="row items-center q-py-sm bg-negative text-white"><q-avatar color="white" text-color="negative" icon="delete_forever" size="32px"/><div class="q-ml-sm"><div class="text-subtitle1 text-weight-bold">{{detail.numero}}</div><div class="text-caption">{{detail.motivo}} · {{formatDate(detail.fecha)}}</div></div><q-space/><q-btn flat dense icon="print" label="Imprimir" no-caps color="white" class="q-mr-xs" @click="printBaja(detail)"/><q-btn flat round dense icon="close" color="white" v-close-popup/></q-card-section>
         <q-card-section class="q-pa-sm">
-          <div class="row text-caption text-grey-8 q-mb-xs"><span>RegistrÃ³: <b>{{detail.usuario_nombre}}</b></span><q-space/><q-badge :color="detail.estado==='ANULADA'?'grey-6':'positive'" :label="detail.estado"/></div>
-          <div v-if="detail.observacion" class="text-caption text-grey-7 q-mb-xs">ObservaciÃ³n: {{detail.observacion}}</div>
+          <div class="row text-caption text-grey-8 q-mb-xs"><span>Registró: <b>{{detail.usuario_nombre}}</b></span><q-space/><q-badge :color="detail.estado==='ANULADA'?'grey-6':'positive'" :label="detail.estado"/></div>
+          <div v-if="detail.observacion" class="text-caption text-grey-7 q-mb-xs">Observación: {{detail.observacion}}</div>
           <q-markup-table flat bordered dense class="detail-table">
             <thead><tr><th class="text-left">Producto</th><th class="text-right">Cantidad</th><th class="text-right">Costo unit.</th><th class="text-right">Total</th></tr></thead>
             <tbody><tr v-for="d in detail.detalles||[]" :key="d.id">
@@ -71,11 +71,11 @@ const formatDate=value=>value?new Date(value).toLocaleString('es-BO'):''
 const motiveColor=id=>motives.value.find(m=>m.id===id)?.color||'grey-8'
 const columns=[
   {name:'actions',label:'Acciones',align:'left'},
-  {name:'numero',label:'NÃºmero',field:'numero',align:'left'},
+  {name:'numero',label:'Número',field:'numero',align:'left'},
   {name:'fecha',label:'Fecha',field:'fecha',align:'left'},
   {name:'motivo',label:'Motivo',field:'motivo',align:'left'},
   {name:'usuario_nombre',label:'Usuario',field:'usuario_nombre',align:'left'},
-  {name:'detalles_count',label:'Ãtems',field:'detalles_count',align:'center'},
+  {name:'detalles_count',label:'Ítems',field:'detalles_count',align:'center'},
   {name:'costo',label:'Costo',field:'total_costo',align:'right'},
   {name:'estado',label:'Estado',field:'estado',align:'center'}
 ]
@@ -106,7 +106,7 @@ async function print(row){
   finally{printing.value=null}
 }
 function cancel(row){
-  proxy.$alert.dialog(`Â¿Anular la baja ${row.numero}? El stock volverÃ¡ al inventario.`).onOk(async()=>{
+  proxy.$alert.dialog(`¿Anular la baja ${row.numero}? El stock volverá al inventario.`).onOk(async()=>{
     try{await proxy.$axios.put(`/bajas/${row.id}/anular`);proxy.$alert.success(`Baja ${row.numero} anulada`);load()}
     catch(e){proxy.$alert.error(e.response?.data?.message||'No se pudo anular la baja')}
   })

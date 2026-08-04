@@ -191,6 +191,10 @@ class CompraController extends Controller
             'almacenDetalle:id,almacen_id,usuario_nombre',
             'almacenDetalle.almacen:id,numero,descripcion,fecha',
         ])->where('cantidad_disponible', '>', 0)->whereNotNull('fecha_vencimiento');
+        if ($origin = $request->input('origen')) {
+            $query->when($origin === 'ALMACEN', fn ($q) => $q->whereNotNull('almacen_detalle_id'))
+                ->when($origin === 'COMPRA', fn ($q) => $q->whereNotNull('compra_detalle_id'));
+        }
         if ($status === 'vencido') {
             $query->whereDate('fecha_vencimiento', '<', today());
         } else {

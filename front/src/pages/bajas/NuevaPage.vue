@@ -9,15 +9,15 @@
       <div class="col-12 col-md-7">
         <q-card flat bordered>
           <q-card-section class="row q-col-gutter-sm q-pa-sm">
-            <q-input ref="searchInput" v-model="search" dense outlined autofocus clearable class="col" placeholder="Buscar producto por nombre o cÃ³digo" @update:model-value="handleSearchInput" @keydown.enter.prevent="addExact($event.target.value)" @keydown.down.prevent="focusGrid">
+            <q-input ref="searchInput" v-model="search" dense outlined autofocus clearable class="col" placeholder="Buscar producto por nombre o código" @update:model-value="handleSearchInput" @keydown.enter.prevent="addExact($event.target.value)" @keydown.down.prevent="focusGrid">
               <template #prepend><q-icon name="search"/></template>
-              <template #hint><span class="text-grey-6">â†“ entra a la lista Â· â† â†’ â†‘ â†“ navega Â· Enter selecciona</span></template>
+              <template #hint><span class="text-grey-6">↓ entra a la lista · ← → ↑ ↓ navega · Enter selecciona</span></template>
             </q-input>
-            <q-select v-model="category" :options="categories" option-label="nombre" dense outlined clearable label="CategorÃ­a" style="min-width:170px" @update:model-value="resetProductsPage"/>
+            <q-select v-model="category" :options="categories" option-label="nombre" dense outlined clearable label="Categoría" style="min-width:170px" @update:model-value="resetProductsPage"/>
           </q-card-section>
           <q-separator/>
           <q-card-section v-if="loadingProducts" class="flex flex-center product-loading"><q-spinner color="primary" size="38px"/></q-card-section>
-          <q-card-section v-else-if="!products.length" class="text-center text-grey-6 q-py-xl"><q-icon name="search_off" size="42px"/><div>Sin productos para esta bÃºsqueda</div></q-card-section>
+          <q-card-section v-else-if="!products.length" class="text-center text-grey-6 q-py-xl"><q-icon name="search_off" size="42px"/><div>Sin productos para esta búsqueda</div></q-card-section>
           <div v-else ref="gridRef" tabindex="0" class="q-pa-sm product-grid" @keydown="handleGridKeyboard" @blur="highlighted=-1">
             <q-card v-for="(product,index) in products" :key="product.id" flat bordered class="product-card cursor-pointer" :class="{'product-card--empty':product.stock_inicial<=0,'product-card--active':index===highlighted}" @click="openProductDialog(product)">
               <div class="product-image"><img v-if="product.foto" :src="photoUrl(product.foto)"/><q-icon v-else name="inventory_2" size="42px" color="grey-4"/></div>
@@ -29,7 +29,7 @@
           </div>
           <q-separator/>
           <q-card-actions class="row items-center justify-between q-px-sm">
-            <span class="text-caption text-grey-7">{{productsFrom}}â€“{{productsTo}} de {{productsTotal}} productos</span>
+            <span class="text-caption text-grey-7">{{productsFrom}}–{{productsTo}} de {{productsTotal}} productos</span>
             <q-pagination v-model="productsPage" :max="productsLastPage" :max-pages="6" boundary-numbers direction-links color="primary" size="sm" @update:model-value="loadProducts"/>
           </q-card-actions>
         </q-card>
@@ -61,7 +61,7 @@
           <q-card-section v-else class="text-center text-grey-6 q-py-xl"><q-icon name="inventory" size="42px"/><div>Agrega productos a dar de baja</div></q-card-section>
           <q-separator/>
           <q-card-section class="q-pa-md">
-            <q-input v-model="observation" dense outlined autogrow label="ObservaciÃ³n" class="q-mb-sm"/>
+            <q-input v-model="observation" dense outlined autogrow label="Observación" class="q-mb-sm"/>
             <div class="row items-center text-h6 text-negative"><b>Costo de la baja</b><q-space/><b>Bs {{money(totalCost)}}</b></div>
           </q-card-section>
           <q-card-actions class="q-pa-sm"><q-btn class="full-width" color="negative" unelevated icon="save" label="Registrar baja" no-caps :disable="!items.length||!motive" :loading="saving" @click="confirmBaja"/></q-card-actions>
@@ -77,9 +77,9 @@
             <q-input ref="quickQtyInput" v-model.number="quickQuantity" autofocus outlined dense type="number" :min="minimumQty(selectedProduct)" :max="availableStock" :step="quantityStep(selectedProduct)" :label="selectedProduct?.unidad==='KG'?'Kilos a dar de baja':'Cantidad a dar de baja'" class="col-12" input-class="text-h6 text-weight-bold" @focus="$event.target.select()"><template #prepend><q-icon name="scale"/></template></q-input>
             <q-select v-if="lots.length" v-model="quickLot" :options="lots" dense outlined clearable class="col-12" label="Lote (opcional)" :option-label="lotLabel" :loading="loadingLots"><template #prepend><q-icon name="inventory_2"/></template></q-select>
             <q-input v-model.trim="quickNote" outlined dense class="col-12" label="Detalle (opcional)" maxlength="255"/>
-            <div class="col-12 row items-center q-pa-sm rounded-borders bg-red-1 text-red-10"><span>Costo de la pÃ©rdida</span><q-space/><b class="text-h6">Bs {{money(Number(quickQuantity)*Number(selectedProduct?.precio_compra||0))}}</b></div>
+            <div class="col-12 row items-center q-pa-sm rounded-borders bg-red-1 text-red-10"><span>Costo de la pérdida</span><q-space/><b class="text-h6">Bs {{money(Number(quickQuantity)*Number(selectedProduct?.precio_compra||0))}}</b></div>
           </q-card-section>
-          <q-separator/><q-card-actions align="right" class="q-pa-sm"><q-btn flat dense label="Cancelar" no-caps v-close-popup/><q-btn type="submit" dense unelevated color="negative" icon="playlist_add" label="Agregar Â· Enter" no-caps/></q-card-actions>
+          <q-separator/><q-card-actions align="right" class="q-pa-sm"><q-btn flat dense label="Cancelar" no-caps v-close-popup/><q-btn type="submit" dense unelevated color="negative" icon="playlist_add" label="Agregar · Enter" no-caps/></q-card-actions>
         </q-form>
       </q-card>
     </q-dialog>
@@ -98,9 +98,9 @@ let productsSearchTimer=null,itemSequence=0
 const photoUrl=path=>`${proxy.$imgBase}/images/${path}`,money=v=>Number(v||0).toFixed(2)
 const isWeighted=item=>item?.unidad==='KG',quantityStep=item=>isWeighted(item)?0.001:1,minimumQty=item=>quantityStep(item)
 const quantity=(value,unit)=>Number(value||0).toFixed(unit==='KG'?3:0)
-const lotLabel=lot=>`${lot.lote||'sin lote'} Â· vence ${lot.fecha_vencimiento||'â€”'} Â· ${Number(lot.cantidad_disponible).toFixed(3)}`
+const lotLabel=lot=>`${lot.lote||'sin lote'} · vence ${lot.fecha_vencimiento||'—'} · ${Number(lot.cantidad_disponible).toFixed(3)}`
 const totalCost=computed(()=>items.value.reduce((sum,i)=>sum+Number(i.precio_compra)*Number(i.cantidad),0))
-// Stock libre del producto abierto, descontando lo que ya estÃ¡ en la lista de la baja.
+// Stock libre del producto abierto, descontando lo que ya está en la lista de la baja.
 const availableStock=computed(()=>{if(!selectedProduct.value)return 0;const used=items.value.filter(i=>i.producto_id===selectedProduct.value.id).reduce((s,i)=>s+Number(i.cantidad||0),0);return Math.max(0,Number((Number(selectedProduct.value.stock_inicial)-used).toFixed(3)))})
 
 async function loadProducts(){loadingProducts.value=true;highlighted.value=-1;try{const {data}=await proxy.$axios.get('/productos',{params:{q:search.value,categoria_id:category.value?.id,per_page:productsPerPage,page:productsPage.value}});products.value=data.data;productsLastPage.value=data.last_page||1;productsTotal.value=data.total||0;productsFrom.value=data.from||0;productsTo.value=data.to||0}finally{loadingProducts.value=false}}
@@ -115,7 +115,7 @@ function backToSearch(){highlighted.value=-1;searchInput.value?.focus()}
 function moveHighlight(delta){const last=products.value.length-1;if(last<0)return;highlighted.value=Math.min(last,Math.max(0,highlighted.value+delta));scrollToHighlighted()}
 function handleGridKeyboard(event){const columns=gridColumns(),index=highlighted.value;switch(event.key){case 'ArrowRight':event.preventDefault();return moveHighlight(1);case 'ArrowLeft':event.preventDefault();return index<=0?backToSearch():moveHighlight(-1);case 'ArrowDown':event.preventDefault();return moveHighlight(columns);case 'ArrowUp':event.preventDefault();return index<columns?backToSearch():moveHighlight(-columns);case 'Enter':event.preventDefault();if(products.value[index])openProductDialog(products.value[index]);return;case 'Escape':event.preventDefault();return backToSearch()}}
 
-async function addExact(value){const q=String(value??search.value??'').trim().toUpperCase();if(!q)return;const match=p=>String(p.codigo||'').toUpperCase()===q||String(p.codigo_barras||'').toUpperCase()===q;let product=products.value.find(match);if(!product){const {data}=await proxy.$axios.get('/productos',{params:{q,per_page:20,page:1}});product=(data.data||[]).find(match)}if(!product)return proxy.$alert.error(`No existe un producto con cÃ³digo ${q}`);openProductDialog(product)}
+async function addExact(value){const q=String(value??search.value??'').trim().toUpperCase();if(!q)return;const match=p=>String(p.codigo||'').toUpperCase()===q||String(p.codigo_barras||'').toUpperCase()===q;let product=products.value.find(match);if(!product){const {data}=await proxy.$axios.get('/productos',{params:{q,per_page:20,page:1}});product=(data.data||[]).find(match)}if(!product)return proxy.$alert.error(`No existe un producto con código ${q}`);openProductDialog(product)}
 
 async function openProductDialog(product){
   if(Number(product.stock_inicial)<=0)return proxy.$alert.error(`${product.nombre}: no tiene stock para dar de baja`)
@@ -129,7 +129,7 @@ async function openProductDialog(product){
 }
 function confirmProduct(){
   const product=selectedProduct.value,requested=Number(quickQuantity.value)
-  if(!product||!(requested>=minimumQty(product)))return proxy.$alert.error('Ingrese una cantidad vÃ¡lida')
+  if(!product||!(requested>=minimumQty(product)))return proxy.$alert.error('Ingrese una cantidad válida')
   if(requested>availableStock.value+.0001)return proxy.$alert.error(`Stock insuficiente: disponible ${quantity(availableStock.value,product.unidad)} ${product.unidad}`)
   if(quickLot.value&&requested>Number(quickLot.value.cantidad_disponible)+.0001)return proxy.$alert.error(`El lote seleccionado solo tiene ${Number(quickLot.value.cantidad_disponible).toFixed(3)}`)
   const rounded=isWeighted(product)?Math.round(requested*1000)/1000:Math.floor(requested)
@@ -141,12 +141,12 @@ function confirmProduct(){
 function changeQty(item,amount){const next=Number((Number(item.cantidad)+amount).toFixed(3));if(next<minimumQty(item))return removeItem(item);if(next>Number(item.maximo)+.0001)return proxy.$alert.error('Supera el stock disponible');item.cantidad=next}
 function validateQty(item){let value=Number(item.cantidad)||minimumQty(item);value=isWeighted(item)?Math.round(value*1000)/1000:Math.floor(value);if(value>Number(item.maximo)){item.cantidad=Number(item.maximo);proxy.$alert.error('La cantidad fue ajustada al stock disponible')}else item.cantidad=Math.max(minimumQty(item),value)}
 function removeItem(item){items.value=items.value.filter(i=>i.key!==item.key)}
-function clearItems(){proxy.$alert.dialog('Â¿Quitar todos los productos de la baja?').onOk(()=>{items.value=[];searchInput.value?.focus()})}
+function clearItems(){proxy.$alert.dialog('¿Quitar todos los productos de la baja?').onOk(()=>{items.value=[];searchInput.value?.focus()})}
 
 function confirmBaja(){
   if(!motive.value)return proxy.$alert.error('Selecciona el motivo de la baja')
   const motiveName=motives.value.find(m=>m.id===motive.value)?.nombre||'baja'
-  proxy.$alert.dialog(`Â¿Registrar la ${motiveName.toLowerCase()} por Bs ${money(totalCost.value)}? El stock se descontarÃ¡ del inventario.`).onOk(async()=>{
+  proxy.$alert.dialog(`¿Registrar la ${motiveName.toLowerCase()} por Bs ${money(totalCost.value)}? El stock se descontará del inventario.`).onOk(async()=>{
     saving.value=true
     try{
       const {data}=await proxy.$axios.post('/bajas',{motivo_id:motive.value,observacion:observation.value,
