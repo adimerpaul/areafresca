@@ -9,6 +9,6 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('siat:renovar-cufd')
-    ->dailyAt('02:54')
+    ->dailyAt('01:00')
     ->timezone('America/La_Paz')
     ->withoutOverlapping(30);
