@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Exports\ProductosExport;
+use App\Exports\ProductosSaldoExport;
 use App\Models\Categoria;
 use App\Models\Producto;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -28,6 +29,13 @@ class ProductoController extends Controller
         $this->authorizeAction($request, 'Ver Productos');
 
         return Excel::download(new ProductosExport($this->filteredQuery($request)->with('categoriaRelacion:id,nombre')->get()), 'productos.xlsx');
+    }
+
+    public function exportSaldo(Request $request)
+    {
+        $this->authorizeAction($request, 'Ver Productos');
+
+        return Excel::download(new ProductosSaldoExport($this->filteredQuery($request)->get()), 'saldo-productos.xlsx');
     }
 
     public function exportPdf(Request $request)
@@ -153,11 +161,13 @@ class ProductoController extends Controller
             'precio_1' => ['nullable', 'numeric', 'min:0'],
             'precio_2' => ['nullable', 'numeric', 'min:0'],
             'precio_3' => ['nullable', 'numeric', 'min:0'],
+            'precio_4' => ['nullable', 'numeric', 'min:0'],
             'stock_inicial' => ['required', 'numeric', 'min:0', 'decimal:0,3'],
         ]);
         foreach (['precio_1', 'precio_2', 'precio_3'] as $tier) {
             $data[$tier] = round((float) ($data[$tier] ?? 0), 2);
         }
+        $data['precio_4'] = isset($data['precio_4']) ? round((float) $data['precio_4'], 2) : null;
         foreach (['codigo', 'nombre', 'categoria', 'unidad'] as $field) {
             $data[$field] = isset($data[$field]) && $data[$field] !== null
                 ? mb_strtoupper(trim($data[$field])) : null;

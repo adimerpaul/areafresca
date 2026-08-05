@@ -11,6 +11,7 @@ class SiatTokenController extends Controller
     public function index(Request $request)
     {
         $this->authorizeAccess($request);
+
         return response()->json(SiatToken::query()->latest()->get());
     }
 
@@ -38,12 +39,14 @@ class SiatTokenController extends Controller
     {
         $this->authorizeAccess($request);
         $token->delete();
+
         return response()->noContent();
     }
 
     public function credentials(Request $request, SiatService $siat)
     {
         $this->authorizeAccess($request);
+
         return response()->json($siat->localCredentialsStatus());
     }
 
@@ -52,6 +55,7 @@ class SiatTokenController extends Controller
         $this->authorizeAccess($request);
         try {
             $siat->createCuis();
+
             return response()->json(['message' => 'CUIS generado correctamente', 'credentials' => $siat->localCredentialsStatus()], 201);
         } catch (\Throwable $exception) {
             abort(422, $exception->getMessage());
@@ -61,9 +65,22 @@ class SiatTokenController extends Controller
     public function createCufd(Request $request, SiatService $siat)
     {
         $this->authorizeAccess($request);
+        $data = $request->validate(['forzar' => ['sometimes', 'boolean']]);
+        $force = (bool) ($data['forzar'] ?? false);
+        if ($siat->localCredentialsStatus()['cufd'] && ! $force) {
+            return response()->json([
+                'message' => 'Ya existe un CUFD vigente. Confirme si desea volver a generarlo.',
+                'confirmation_required' => true,
+            ], 409);
+        }
+
         try {
-            $siat->createCufd();
-            return response()->json(['message' => 'CUFD generado correctamente', 'credentials' => $siat->localCredentialsStatus()], 201);
+            $siat->createCufd($force);
+
+            return response()->json([
+                'message' => $force ? 'CUFD regenerado y guardado correctamente' : 'CUFD generado correctamente',
+                'credentials' => $siat->localCredentialsStatus(),
+            ], 201);
         } catch (\Throwable $exception) {
             abort(422, $exception->getMessage());
         }
@@ -73,6 +90,7 @@ class SiatTokenController extends Controller
     {
         $decoded = base64_decode(strtr($value, '-_', '+/').str_repeat('=', (4 - strlen($value) % 4) % 4), true);
         abort_if($decoded === false, 422, 'El contenido del token no es valido.');
+
         return $decoded;
     }
 

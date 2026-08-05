@@ -35,6 +35,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/productos', [ProductoController::class, 'index']);
     Route::get('/productos-exportar/excel', [ProductoController::class, 'exportExcel']);
+    Route::get('/productos-exportar/saldo', [ProductoController::class, 'exportSaldo']);
     Route::get('/productos-exportar/pdf', [ProductoController::class, 'exportPdf']);
     Route::get('/productos-catalogos', [ProductoController::class, 'catalogos']);
     Route::post('/categorias', [ProductoController::class, 'storeCategoria']);

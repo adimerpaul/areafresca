@@ -95,10 +95,14 @@ class SiatService
         ]);
     }
 
-    public function createCufd(): SiatCufd
+    public function createCufd(bool $force = false): SiatCufd
     {
         $current = SiatCufd::where('vence_en', '>', now()->addMinutes(5))->latest()->first();
         if ($current) {
+            if ($force) {
+                return $this->renewCufd();
+            }
+
             return $current;
         }
         $cuis = SiatCuis::where('vence_en', '>', now()->addMinutes(5))->latest()->first();

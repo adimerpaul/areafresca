@@ -6,7 +6,7 @@
         <div class="text-caption text-grey-7">Inventario inicial, precios e imágenes</div>
       </div>
       <q-space />
-      <q-btn-dropdown dense flat color="primary" icon="download" label="Exportar" no-caps class="q-mr-xs"><q-list dense><q-item clickable v-close-popup @click="download('excel')"><q-item-section avatar><q-icon name="table_view" color="positive"/></q-item-section><q-item-section>Excel</q-item-section></q-item><q-item clickable v-close-popup @click="download('pdf')"><q-item-section avatar><q-icon name="picture_as_pdf" color="negative"/></q-item-section><q-item-section>PDF</q-item-section></q-item></q-list></q-btn-dropdown>
+      <q-btn-dropdown dense flat color="primary" icon="download" label="Exportar" no-caps class="q-mr-xs"><q-list dense><q-item clickable v-close-popup @click="download('excel')"><q-item-section avatar><q-icon name="table_view" color="positive"/></q-item-section><q-item-section>Excel</q-item-section></q-item><q-item clickable v-close-popup @click="download('saldo')"><q-item-section avatar><q-icon name="inventory" color="amber-8"/></q-item-section><q-item-section>Saldo Excel</q-item-section></q-item><q-item clickable v-close-popup @click="download('pdf')"><q-item-section avatar><q-icon name="picture_as_pdf" color="negative"/></q-item-section><q-item-section>PDF</q-item-section></q-item></q-list></q-btn-dropdown>
       <q-btn v-if="can('Editar Productos')" dense flat color="primary" icon="category" label="Categorías" no-caps class="q-mr-xs" @click="openCategories" />
       <q-btn v-if="can('Crear Productos')" dense color="primary" icon="add" label="Nuevo" no-caps @click="openForm()" />
     </div>
@@ -33,6 +33,7 @@
         <template #body-cell-precio_1="p"><q-td :props="p">Bs {{ money(p.value) }}</q-td></template>
         <template #body-cell-precio_2="p"><q-td :props="p">Bs {{ money(p.value) }}</q-td></template>
         <template #body-cell-precio_3="p"><q-td :props="p">Bs {{ money(p.value) }}</q-td></template>
+        <template #body-cell-precio_4="p"><q-td :props="p">{{p.value===null||p.value===''?'—':`Bs ${money(p.value)}`}}</q-td></template>
         <template #body-cell-codigo_barras="p"><q-td :props="p"><q-input v-model="p.row.codigo_barras" dense borderless placeholder="Escanear o escribir" input-class="text-caption" @keyup.enter="$event.target.blur()" @blur="saveBarcode(p.row)"><template #append><q-icon name="qr_code_scanner" size="16px"/></template></q-input></q-td></template>
         <template #body-cell-stock_inicial="p">
           <q-td :props="p"><q-badge :color="p.value > 10 ? 'positive' : 'orange'" :label="p.value" /></q-td>
@@ -79,11 +80,13 @@
             <q-input v-model.number="form.stock_inicial" type="number" min="0" :step="form.unidad==='KG'?0.001:1"
                      outlined dense :label="form.unidad==='KG'?'Stock inicial (kg) *':'Stock inicial *'" class="col-12 col-sm-4" :rules="[nonNegative]" />
             <q-input v-model.number="form.precio_1" type="number" step="0.01" min="0"
-                     outlined dense label="Precio 1" prefix="Bs" class="col-12 col-sm-4" :rules="[nonNegative]" hint="Escala oficial de venta al público" />
+                     outlined dense label="Precio 1" prefix="Bs" class="col-12 col-sm-3" :rules="[nonNegative]" hint="Escala oficial de venta al público" />
             <q-input v-model.number="form.precio_2" type="number" step="0.01" min="0"
-                     outlined dense label="Precio 2" prefix="Bs" class="col-12 col-sm-4" :rules="[nonNegative]" />
+                     outlined dense label="Precio 2" prefix="Bs" class="col-12 col-sm-3" :rules="[nonNegative]" />
             <q-input v-model.number="form.precio_3" type="number" step="0.01" min="0"
-                     outlined dense label="Precio 3" prefix="Bs" class="col-12 col-sm-4" :rules="[nonNegative]" />
+                     outlined dense label="Precio 3" prefix="Bs" class="col-12 col-sm-3" :rules="[nonNegative]" />
+            <q-input v-model.number="form.precio_4" type="number" step="0.01" min="0"
+                     outlined dense clearable label="Precio 4" prefix="Bs" class="col-12 col-sm-3" />
             </div>
           </q-card-section>
           <q-card-actions align="right">
@@ -130,7 +133,7 @@ const unitOptions = ref(['GR', 'KG', 'ML', 'LT', 'UNIDAD'])
 const stockStatusOptions=[{label:'Todos',value:null},{label:'Sin stock',value:'sin_stock'},{label:'Stock bajo (1 a 10)',value:'bajo'},{label:'Disponible (más de 10)',value:'disponible'}]
 const sortOptions=[{label:'Nombre A–Z',value:'nombre_asc'},{label:'Nombre Z–A',value:'nombre_desc'},{label:'Mayor stock',value:'stock_desc'},{label:'Menor stock',value:'stock_asc'},{label:'Mayor precio',value:'precio_desc'},{label:'Menor precio',value:'precio_asc'}]
 const pagination = ref({ page: 1, rowsPerPage: 20, rowsNumber: 0 })
-const empty = () => ({ id: null, codigo: '', codigo_barras: '', nombre: '', categoria_id: null, unidad: 'UNIDAD', precio_compra: 0, precio_venta: 0, precio_1: 0, precio_2: 0, precio_3: 0, stock_inicial: 0, foto: null, foto_url: '' })
+const empty = () => ({ id: null, codigo: '', codigo_barras: '', nombre: '', categoria_id: null, unidad: 'UNIDAD', precio_compra: 0, precio_venta: 0, precio_1: 0, precio_2: 0, precio_3: 0, precio_4: null, stock_inicial: 0, foto: null, foto_url: '' })
 const form = reactive(empty())
 const categoryForm = reactive({ id:null, nombre:'', color:'primary' })
 const colorOptions=['primary','blue','light-blue','purple','amber','orange','red','pink','brown','blue-grey','green']
@@ -147,6 +150,7 @@ const columns = [
   { name:'precio_1', label:'Precio 1', field:'precio_1', align:'right' },
   { name:'precio_2', label:'Precio 2', field:'precio_2', align:'right' },
   { name:'precio_3', label:'Precio 3', field:'precio_3', align:'right' },
+  { name:'precio_4', label:'Precio 4', field:'precio_4', align:'right' },
   { name:'stock_inicial', label:'Stock inicial', field:'stock_inicial', align:'center' }
 ].filter(column => column.name !== 'codigo')
 const can = p => proxy.$store.hasPermission(p)
@@ -163,7 +167,7 @@ function onRequest ({ pagination: p }) {
     .catch(e => proxy.$alert.error(e.response?.data?.message || 'No se pudieron cargar los productos'))
     .finally(() => { loading.value=false })
 }
-async function download(type){try{const response=await proxy.$axios.get(`/productos-exportar/${type}`,{params:filterParams(),responseType:'blob'});const url=URL.createObjectURL(response.data),a=document.createElement('a');a.href=url;a.download=`productos.${type==='excel'?'xlsx':'pdf'}`;a.click();URL.revokeObjectURL(url)}catch{proxy.$alert.error('No se pudo exportar el reporte')}}
+async function download(type){try{const response=await proxy.$axios.get(`/productos-exportar/${type}`,{params:filterParams(),responseType:'blob'});const url=URL.createObjectURL(response.data),a=document.createElement('a');a.href=url;a.download=type==='saldo'?'saldo-productos.xlsx':`productos.${type==='excel'?'xlsx':'pdf'}`;a.click();URL.revokeObjectURL(url)}catch{proxy.$alert.error('No se pudo exportar el reporte')}}
 function loadCatalogs () {
   return proxy.$axios.get('/productos-catalogos').then(({data}) => {
     catalogs.categorias=data.categorias
