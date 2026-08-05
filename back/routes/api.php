@@ -61,6 +61,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/ventas/{venta}', [VentaController::class, 'show']);
     Route::put('/ventas/{venta}/anular', [VentaController::class, 'cancel']);
     Route::put('/ventas/{venta}/convertir-recibo', [VentaController::class, 'convertToReceipt']);
+    Route::put('/ventas/{venta}/corregir-factura', [VentaController::class, 'fixAndResend']);
 
     Route::get('/compras', [CompraController::class, 'index']);
     Route::get('/compras-resumen', [CompraController::class, 'summary']);

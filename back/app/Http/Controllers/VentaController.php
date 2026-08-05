@@ -14,6 +14,7 @@ use App\Services\Siat\SiatService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Maatwebsite\Excel\Facades\Excel;
 
 class VentaController extends Controller
@@ -22,7 +23,7 @@ class VentaController extends Controller
     {
         $this->authorizeAction($request, 'Ver Ventas');
         $query = $this->filteredQuery($request)
-            ->with('usuario:id,name,username')
+            ->with(['usuario:id,name,username', 'detalles:id,venta_id,nombre,cantidad,unidad'])
             ->withCount('detalles')
             ->latest('fecha');
 
@@ -45,42 +46,72 @@ class VentaController extends Controller
             // Ventas cobradas como factura que nunca se emitieron en Impuestos.
             'facturas_sin_emitir' => (clone $query)
                 ->where('tipo_comprobante', 'FACTURA')->whereNull('cuf')->count(),
+            // Facturas que Impuestos rechazó: el cliente tiene un papel que no vale.
+            'facturas_rechazadas' => (clone $query)
+                ->where('tipo_comprobante', 'FACTURA')->where('estado_siat', 'OBSERVADA')->count(),
             'usuarios' => User::orderBy('username')->get(['id', 'name', 'username']),
         ]);
     }
 
     public function dashboard(Request $request)
     {
-        $this->authorizeAction($request, 'Ver Ventas');
-        $sales = Venta::where('estado', 'COMPLETADA');
-        $total = (float) (clone $sales)->sum('total');
-        $count = (clone $sales)->count();
-        $items = (float) DB::table('venta_detalles')
+        $this->authorizeAction($request, 'Ver Estadísticas');
+
+        // Sin rango explícito se muestran los últimos 7 días, incluido hoy.
+        $from = $request->date('desde') ?: now()->subDays(6);
+        $to = $request->date('hasta') ?: now();
+        if ($from->gt($to)) {
+            [$from, $to] = [$to, $from];
+        }
+        $from = $from->startOfDay();
+        $to = $to->endOfDay();
+
+        $inRange = fn () => Venta::where('estado', 'COMPLETADA')->whereBetween('fecha', [$from, $to]);
+        $detailsInRange = fn () => DB::table('venta_detalles')
             ->join('ventas', 'ventas.id', '=', 'venta_detalles.venta_id')
             ->where('ventas.estado', 'COMPLETADA')
-            ->whereNull('ventas.deleted_at')->whereNull('venta_detalles.deleted_at')
-            ->sum('venta_detalles.cantidad');
-        $profit = (float) DB::table('venta_detalles')
-            ->join('ventas', 'ventas.id', '=', 'venta_detalles.venta_id')
-            ->where('ventas.estado', 'COMPLETADA')
-            ->whereNull('ventas.deleted_at')->whereNull('venta_detalles.deleted_at')
+            ->whereBetween('ventas.fecha', [$from, $to])
+            ->whereNull('ventas.deleted_at')->whereNull('venta_detalles.deleted_at');
+
+        $total = (float) $inRange()->sum('total');
+        $count = $inRange()->count();
+        $items = (float) $detailsInRange()->sum('venta_detalles.cantidad');
+        $profit = (float) $detailsInRange()
             ->selectRaw('COALESCE(SUM(((venta_detalles.precio_venta - venta_detalles.precio_compra) * venta_detalles.cantidad) - venta_detalles.descuento), 0) AS total')
             ->value('total');
 
-        $dailyRaw = Venta::where('estado', 'COMPLETADA')->where('fecha', '>=', now()->subDays(6)->startOfDay())
-            ->selectRaw('DATE(fecha) as dia, SUM(total) as total')->groupBy('dia')->pluck('total', 'dia');
-        $daily = collect(range(6, 0))->map(function ($days) use ($dailyRaw) {
-            $date = now()->subDays($days);
+        $dailyRaw = $inRange()->selectRaw('DATE(fecha) as dia, SUM(total) as total')
+            ->groupBy('dia')->pluck('total', 'dia');
+        // El cast es necesario: en Carbon 3 diffInDays devuelve float.
+        $days = (int) $from->diffInDays($to) + 1;
 
-            return ['label' => $date->format('d/m'), 'total' => (float) ($dailyRaw[$date->toDateString()] ?? 0)];
-        });
+        if ($days > 92) {
+            // Rangos largos se agrupan por mes para que el gráfico siga siendo legible
+            // y siga cubriendo todo el rango elegido. Se agrupa en PHP para no depender
+            // de funciones de fecha propias de MySQL.
+            $monthly = collect($dailyRaw)->groupBy(fn ($total, $date) => substr($date, 0, 7))
+                ->map(fn ($totals) => (float) $totals->sum());
+            $daily = collect();
+            for ($month = $from->copy()->startOfMonth(); $month->lte($to); $month->addMonth()) {
+                $daily->push([
+                    'label' => $month->format('m/Y'),
+                    'total' => (float) ($monthly[$month->format('Y-m')] ?? 0),
+                ]);
+            }
+        } else {
+            $daily = collect(range($days - 1, 0))->map(function ($offset) use ($dailyRaw, $to) {
+                $date = $to->copy()->subDays($offset);
 
-        $byUser = Venta::where('estado', 'COMPLETADA')->selectRaw('usuario_nombre as nombre, SUM(total) as total')
+                return ['label' => $date->format('d/m'), 'total' => (float) ($dailyRaw[$date->toDateString()] ?? 0)];
+            });
+        }
+        $daily = $daily->values();
+
+        $byUser = $inRange()->selectRaw('usuario_nombre as nombre, SUM(total) as total')
             ->groupBy('usuario_nombre')->orderByDesc('total')->limit(8)->get();
-        $payments = Venta::where('estado', 'COMPLETADA')->selectRaw('tipo_pago as nombre, SUM(total) as total')
+        $payments = $inRange()->selectRaw('tipo_pago as nombre, SUM(total) as total')
             ->groupBy('tipo_pago')->get();
-        $topProducts = DB::table('venta_detalles')->join('ventas', 'ventas.id', '=', 'venta_detalles.venta_id')
-            ->where('ventas.estado', 'COMPLETADA')->whereNull('ventas.deleted_at')->whereNull('venta_detalles.deleted_at')
+        $topProducts = $detailsInRange()
             ->selectRaw('venta_detalles.producto_id, venta_detalles.nombre, venta_detalles.foto, SUM(venta_detalles.cantidad) as cantidad, SUM(venta_detalles.total) as total')
             ->groupBy('venta_detalles.producto_id', 'venta_detalles.nombre', 'venta_detalles.foto')
             ->orderByDesc('cantidad')->limit(8)->get();
@@ -88,6 +119,7 @@ class VentaController extends Controller
         return response()->json([
             'indicadores' => ['ventas' => $total, 'ganancia' => $profit, 'productos' => $items, 'cantidad_ventas' => $count, 'ticket_promedio' => $count ? $total / $count : 0],
             'diario' => $daily, 'usuarios' => $byUser, 'pagos' => $payments, 'productos_top' => $topProducts,
+            'rango' => ['desde' => $from->toDateString(), 'hasta' => $to->toDateString()],
         ]);
     }
 
@@ -278,6 +310,16 @@ class VentaController extends Controller
         if ($venta->tipo_comprobante === 'FACTURA') {
             error_log('[VENTA][STORE] Enviando venta a facturación electrónica: '.$venta->id);
             $venta = $invoices->issue($venta)->load(['detalles', 'cliente']);
+
+            // Impuestos contestó y rechazó los datos: se deshace la venta para que el
+            // cajero corrija y vuelva a cobrar. Se compara contra OBSERVADA a propósito:
+            // ERROR_ENVIO (sin respuesta) y PENDIENTE_EVENTO (fuera de línea) deben
+            // seguir su curso y enviarse luego como evento significativo.
+            if ($venta->estado_siat === 'OBSERVADA') {
+                $this->undoRejectedSale($venta);
+                abort(422, 'Impuestos rechazó la factura: '.trim((string) $venta->siat_mensaje ?: 'sin detalle')
+                    .' — La venta NO se registró. Corrija los datos del cliente y vuelva a cobrar.');
+            }
         } else {
             error_log('[VENTA][STORE] No se envía a SIAT porque es recibo: '.$venta->id);
         }
@@ -321,6 +363,9 @@ class VentaController extends Controller
             // Mismo criterio que el contador de "facturas_sin_emitir" del resumen.
             $query->where('tipo_comprobante', 'FACTURA')->whereNull('cuf')
                 ->where('estado', 'COMPLETADA');
+        } elseif ($request->input('envio') === 'rechazadas') {
+            $query->where('tipo_comprobante', 'FACTURA')->where('estado_siat', 'OBSERVADA')
+                ->where('estado', 'COMPLETADA');
         }
 
         return $query;
@@ -352,13 +397,7 @@ class VentaController extends Controller
         }
 
         DB::transaction(function () use ($venta) {
-            foreach ($venta->detalles as $detail) {
-                Producto::whereKey($detail->producto_id)->increment('stock_inicial', $detail->cantidad);
-                $allocations = DB::table('venta_detalle_lotes')->where('venta_detalle_id', $detail->id)->get();
-                foreach ($allocations as $allocation) {
-                    Lote::whereKey($allocation->lote_id)->increment('cantidad_disponible', $allocation->cantidad);
-                }
-            }
+            $this->restoreStock($venta);
             $venta->update(['estado' => 'ANULADA']);
         });
 
@@ -419,6 +458,124 @@ class VentaController extends Controller
             'venta' => $venta->fresh(),
             'mensaje' => "La venta {$venta->numero} ahora es un RECIBO",
         ]);
+    }
+
+    /**
+     * Corrige los datos del cliente y vuelve a emitir una factura que Impuestos
+     * rechazó. Como el SIN nunca la aceptó, el número de factura sigue libre y
+     * se reutiliza: se genera un CUF nuevo y se firma el XML otra vez.
+     */
+    public function fixAndResend(Request $request, Venta $venta, ElectronicInvoiceService $invoices)
+    {
+        $this->authorizeAction($request, 'Corregir Factura Rechazada');
+        abort_if($venta->tipo_comprobante !== 'FACTURA', 422, 'La venta no es una factura');
+        abort_if($venta->estado !== 'COMPLETADA', 422,
+            'La venta está anulada: no se puede emitir una factura de una venta anulada');
+        abort_if($venta->estado_siat === 'VALIDADA', 422,
+            'Impuestos ya aceptó esta factura: para corregirla debe anularla y emitir una nueva');
+        abort_unless($venta->estado_siat === 'OBSERVADA', 422,
+            'Sólo se pueden corregir las facturas rechazadas por Impuestos');
+
+        $data = $request->validate([
+            'tipo_documento' => ['required', 'in:CI,NIT'],
+            'numero_documento' => ['required', 'string', 'max:30'],
+            'complemento' => ['nullable', 'string', 'max:10'],
+            'cliente_nombre' => ['required', 'string', 'max:255'],
+            'cliente_email' => ['nullable', 'email', 'max:255'],
+        ]);
+        $document = trim($data['numero_documento']);
+        abort_if($document === '' || $document === '0', 422, 'Una factura necesita el documento del cliente');
+
+        // El XML rechazado se conserva aparte: issue() reescribe el del mismo id.
+        if ($venta->xml_path && Storage::disk('local')->exists($venta->xml_path)) {
+            Storage::disk('local')->copy(
+                $venta->xml_path,
+                "impuestos/facturas/rechazadas/{$venta->id}-".now()->format('YmdHis').'.xml',
+            );
+        }
+
+        $client = Cliente::updateOrCreate(
+            ['tipo_documento' => $data['tipo_documento'], 'numero_documento' => $document],
+            [
+                'complemento' => $data['complemento'] ?? null,
+                'nombre' => $data['cliente_nombre'],
+                'email' => $data['cliente_email'] ?? null,
+            ],
+        );
+
+        $previous = ['cuf' => $venta->cuf, 'estado_siat' => $venta->estado_siat, 'documento' => $venta->tipo_documento.' '.$venta->numero_documento];
+
+        $venta->update([
+            'cliente_id' => $client->id,
+            'tipo_documento' => $data['tipo_documento'],
+            'numero_documento' => $document,
+            'complemento' => $data['complemento'] ?? null,
+            'cliente_nombre' => $data['cliente_nombre'],
+            'cliente_email' => $data['cliente_email'] ?? null,
+            // Se limpia el intento rechazado para que issue() emita desde cero.
+            'cuf' => null,
+            'cufd' => null,
+            'codigo_recepcion' => null,
+            'xml_path' => null,
+            'pdf_path' => null,
+            'fecha_emision_siat' => null,
+            'estado_siat' => null,
+            'siat_mensaje' => null,
+            'online' => false,
+        ]);
+
+        error_log('[VENTA][REENVIO] Corrigiendo factura rechazada: '.json_encode([
+            'venta_id' => $venta->id, 'numero' => $venta->numero,
+            'anterior' => $previous, 'nuevo_documento' => $data['tipo_documento'].' '.$document,
+            'usuario_id' => $request->user()?->id,
+        ], JSON_UNESCAPED_UNICODE));
+
+        $venta = $invoices->issue($venta->fresh())->load(['detalles', 'cliente']);
+
+        return response()->json([
+            'venta' => $venta,
+            'aceptada' => $venta->estado_siat === 'VALIDADA',
+            'mensaje' => $venta->estado_siat === 'VALIDADA'
+                ? "Factura {$venta->numero} emitida correctamente con el documento corregido"
+                : 'Impuestos volvió a rechazarla: '.($venta->siat_mensaje ?: 'sin detalle'),
+        ]);
+    }
+
+    /** Devuelve al stock y a los lotes exactamente lo que consumió la venta. */
+    private function restoreStock(Venta $venta): void
+    {
+        foreach ($venta->detalles as $detail) {
+            Producto::whereKey($detail->producto_id)->increment('stock_inicial', $detail->cantidad);
+            $allocations = DB::table('venta_detalle_lotes')->where('venta_detalle_id', $detail->id)->get();
+            foreach ($allocations as $allocation) {
+                Lote::whereKey($allocation->lote_id)->increment('cantidad_disponible', $allocation->cantidad);
+            }
+        }
+    }
+
+    /**
+     * Deshace una venta que Impuestos rechazó en el momento de emitirla, para que
+     * el cajero corrija los datos del cliente y vuelva a cobrar.
+     *
+     * Se usa SÓLO cuando el SIN respondió y rechazó (OBSERVADA). Si no hubo
+     * respuesta (ERROR_ENVIO) o la factura se preparó fuera de línea
+     * (PENDIENTE_EVENTO), la venta se conserva y sigue su curso normal para
+     * enviarse después como evento significativo.
+     */
+    private function undoRejectedSale(Venta $venta): void
+    {
+        DB::transaction(function () use ($venta) {
+            $this->restoreStock($venta);
+            $venta->detalles()->delete();
+            $venta->delete();
+        });
+
+        error_log('[VENTA][RECHAZO] Venta deshecha por rechazo de Impuestos: '.json_encode([
+            'venta_id' => $venta->id,
+            'numero' => $venta->numero,
+            'documento' => $venta->tipo_documento.' '.$venta->numero_documento,
+            'mensaje_siat' => $venta->siat_mensaje,
+        ], JSON_UNESCAPED_UNICODE));
     }
 
     private function authorizeAction(Request $request, string $permission): void
