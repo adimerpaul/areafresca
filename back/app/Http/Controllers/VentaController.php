@@ -3,18 +3,18 @@
 namespace App\Http\Controllers;
 
 use App\Exports\VentasExport;
-use App\Models\Producto;
 use App\Models\Cliente;
 use App\Models\Lote;
+use App\Models\Producto;
 use App\Models\User;
 use App\Models\Venta;
+use App\Services\InvoiceDeliveryService;
+use App\Services\Siat\ElectronicInvoiceService;
+use App\Services\Siat\SiatService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Facades\Excel;
-use App\Services\Siat\ElectronicInvoiceService;
-use App\Services\Siat\SiatService;
-use App\Services\InvoiceDeliveryService;
 
 class VentaController extends Controller
 {
@@ -42,6 +42,9 @@ class VentaController extends Controller
             'total' => (clone $query)->sum('total'),
             'descuento' => (clone $query)->sum('descuento'),
             'cantidad' => (clone $query)->count(),
+            // Ventas cobradas como factura que nunca se emitieron en Impuestos.
+            'facturas_sin_emitir' => (clone $query)
+                ->where('tipo_comprobante', 'FACTURA')->whereNull('cuf')->count(),
             'usuarios' => User::orderBy('username')->get(['id', 'name', 'username']),
         ]);
     }
@@ -136,7 +139,7 @@ class VentaController extends Controller
 
     public function store(Request $request, ElectronicInvoiceService $invoices, SiatService $siat)
     {
-        error_log('[VENTA][STORE] Inicio: '.json_encode(['usuario_id'=>$request->user()?->id,'cantidad_detalles'=>count($request->input('detalles',[])),'numero_documento'=>$request->input('numero_documento','0')], JSON_UNESCAPED_UNICODE));
+        error_log('[VENTA][STORE] Inicio: '.json_encode(['usuario_id' => $request->user()?->id, 'cantidad_detalles' => count($request->input('detalles', [])), 'numero_documento' => $request->input('numero_documento', '0')], JSON_UNESCAPED_UNICODE));
         $this->authorizeAction($request, 'Crear Ventas');
         $data = $request->validate([
             'descuento' => ['nullable', 'numeric', 'min:0'],
@@ -271,14 +274,15 @@ class VentaController extends Controller
         });
 
         $venta->load(['detalles', 'cliente']);
-        error_log('[VENTA][STORE] Venta guardada: '.json_encode(['venta_id'=>$venta->id,'numero'=>$venta->numero,'tipo_comprobante'=>$venta->tipo_comprobante,'total'=>$venta->total], JSON_UNESCAPED_UNICODE));
+        error_log('[VENTA][STORE] Venta guardada: '.json_encode(['venta_id' => $venta->id, 'numero' => $venta->numero, 'tipo_comprobante' => $venta->tipo_comprobante, 'total' => $venta->total], JSON_UNESCAPED_UNICODE));
         if ($venta->tipo_comprobante === 'FACTURA') {
             error_log('[VENTA][STORE] Enviando venta a facturación electrónica: '.$venta->id);
             $venta = $invoices->issue($venta)->load(['detalles', 'cliente']);
         } else {
             error_log('[VENTA][STORE] No se envía a SIAT porque es recibo: '.$venta->id);
         }
-        error_log('[VENTA][STORE] Fin: '.json_encode(['venta_id'=>$venta->id,'estado_siat'=>$venta->estado_siat,'mensaje_siat'=>$venta->siat_mensaje], JSON_UNESCAPED_UNICODE));
+        error_log('[VENTA][STORE] Fin: '.json_encode(['venta_id' => $venta->id, 'estado_siat' => $venta->estado_siat, 'mensaje_siat' => $venta->siat_mensaje], JSON_UNESCAPED_UNICODE));
+
         return response()->json($venta, 201);
     }
 
@@ -313,6 +317,10 @@ class VentaController extends Controller
                 ->whereNotNull('xml_path')->whereNotNull('fecha_emision_siat');
         } elseif ($request->input('envio') === 'enviadas') {
             $query->where('tipo_comprobante', 'FACTURA')->where('online', true);
+        } elseif ($request->input('envio') === 'sin_emitir') {
+            // Mismo criterio que el contador de "facturas_sin_emitir" del resumen.
+            $query->where('tipo_comprobante', 'FACTURA')->whereNull('cuf')
+                ->where('estado', 'COMPLETADA');
         }
 
         return $query;
@@ -372,6 +380,44 @@ class VentaController extends Controller
             'mensaje' => $mustCancelInSiat
                 ? 'Factura anulada en Impuestos y venta anulada correctamente'
                 : 'Venta anulada correctamente',
+        ]);
+    }
+
+    /**
+     * Pasa a RECIBO una venta que quedó marcada como FACTURA pero que nunca se
+     * llegó a emitir en Impuestos. Sólo se permite cuando no hay CUF: si la
+     * factura existe ante el SIN hay que anularla, no cambiarle el tipo.
+     */
+    public function convertToReceipt(Request $request, Venta $venta)
+    {
+        $this->authorizeAction($request, 'Cambiar Factura a Recibo');
+        abort_if($venta->tipo_comprobante === 'RECIBO', 422, 'La venta ya es un recibo');
+        abort_if((bool) $venta->cuf, 422,
+            'La factura ya fue emitida en Impuestos: debe anularla en lugar de convertirla');
+        abort_if(in_array($venta->estado_siat, ['VALIDADA', 'ANULADA'], true), 422,
+            'La factura figura como '.$venta->estado_siat.' en Impuestos y no se puede convertir');
+
+        $venta->update([
+            'tipo_comprobante' => 'RECIBO',
+            'estado_siat' => null,
+            'siat_mensaje' => null,
+            'cufd' => null,
+            'codigo_recepcion' => null,
+            'xml_path' => null,
+            'pdf_path' => null,
+            'fecha_emision_siat' => null,
+            'online' => false,
+        ]);
+
+        error_log('[VENTA][RECIBO] Factura convertida a recibo: '.json_encode([
+            'venta_id' => $venta->id,
+            'numero' => $venta->numero,
+            'usuario_id' => $request->user()?->id,
+        ], JSON_UNESCAPED_UNICODE));
+
+        return response()->json([
+            'venta' => $venta->fresh(),
+            'mensaje' => "La venta {$venta->numero} ahora es un RECIBO",
         ]);
     }
 

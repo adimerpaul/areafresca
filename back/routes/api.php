@@ -2,14 +2,14 @@
 
 use App\Http\Controllers\AlmacenController;
 use App\Http\Controllers\BajaController;
-use App\Http\Controllers\CompraController;
 use App\Http\Controllers\CertificadoDigitalController;
 use App\Http\Controllers\ClienteController;
+use App\Http\Controllers\CompraController;
 use App\Http\Controllers\ConfiguracionController;
 use App\Http\Controllers\CorreoPruebaController;
 use App\Http\Controllers\ProductoController;
-use App\Http\Controllers\SiatTokenController;
 use App\Http\Controllers\SiatEventoSignificativoController;
+use App\Http\Controllers\SiatTokenController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VentaController;
 use Illuminate\Support\Facades\Route;
@@ -60,6 +60,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/ventas/{venta}/verificar-impuestos', [VentaController::class, 'verifyTaxes']);
     Route::get('/ventas/{venta}', [VentaController::class, 'show']);
     Route::put('/ventas/{venta}/anular', [VentaController::class, 'cancel']);
+    Route::put('/ventas/{venta}/convertir-recibo', [VentaController::class, 'convertToReceipt']);
 
     Route::get('/compras', [CompraController::class, 'index']);
     Route::get('/compras-resumen', [CompraController::class, 'summary']);

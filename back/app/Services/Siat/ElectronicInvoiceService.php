@@ -361,6 +361,8 @@ class ElectronicInvoiceService
         );
         $document->appendChild($root);
 
+        [$lines, $total, $additionalDiscount] = $this->roundedAmounts($sale);
+
         $header = $root->appendChild($document->createElement('cabecera'));
         $headerFields = [
             'nitEmisor' => $company->nit,
@@ -381,13 +383,13 @@ class ElectronicInvoiceService
             'codigoCliente' => $sale->numero_documento,
             'codigoMetodoPago' => 1,
             'numeroTarjeta' => null,
-            'montoTotal' => $sale->total,
-            'montoTotalSujetoIva' => $sale->total,
+            'montoTotal' => $this->money($total),
+            'montoTotalSujetoIva' => $this->money($total),
             'codigoMoneda' => 1,
-            'tipoCambio' => 1,
-            'montoTotalMoneda' => $sale->total,
+            'tipoCambio' => $this->money(1),
+            'montoTotalMoneda' => $this->money($total),
             'montoGiftCard' => null,
-            'descuentoAdicional' => $sale->descuento,
+            'descuentoAdicional' => $this->money($additionalDiscount),
             'codigoExcepcion' => null,
             'cafc' => null,
             'leyenda' => config('siat.leyenda'),
@@ -397,20 +399,23 @@ class ElectronicInvoiceService
 
         $this->appendFields($document, $header, $headerFields);
 
-        foreach ($sale->detalles as $item) {
+        foreach ($lines as $line) {
+            $item = $line['item'];
             $detail = $root->appendChild($document->createElement('detalle'));
             $detailFields = [
                 'actividadEconomica' => $activity,
                 'codigoProductoSin' => $productCode,
                 'codigoProducto' => $item->codigo_barras ?: $item->codigo,
                 'descripcion' => $item->nombre,
-                'cantidad' => $item->cantidad,
+                'cantidad' => $this->money($line['cantidad']),
                 'unidadMedida' => config('siat.unidad_medida'),
-                'precioUnitario' => $item->precio_venta,
-                // El descuento de la venta se declara una sola vez en
-                // descuentoAdicional. Repetirlo aquí hace que SIAT lo reste dos veces.
-                'montoDescuento' => 0,
-                'subTotal' => $item->subtotal,
+                'precioUnitario' => $this->money($line['precioUnitario']),
+                // El descuento comercial de la venta se declara una sola vez en
+                // descuentoAdicional (repetirlo aquí haría que SIAT lo reste dos veces).
+                // Aquí sólo va el residuo del redondeo a 2 decimales, para que
+                // cantidad * precioUnitario - montoDescuento = subTotal exacto.
+                'montoDescuento' => $this->money($line['montoDescuento']),
+                'subTotal' => $this->money($line['subTotal']),
                 'numeroSerie' => null,
                 'numeroImei' => null,
             ];
@@ -419,6 +424,85 @@ class ElectronicInvoiceService
         }
 
         return $document->saveXML();
+    }
+
+    /**
+     * El XSD del SIAT sólo admite 2 decimales en cantidad, precioUnitario,
+     * montoDescuento y subTotal, mientras que la venta guarda 3 decimales de
+     * cantidad y 4 de precio. Aquí se redondea todo a 2 decimales manteniendo
+     * las dos igualdades que valida Impuestos:
+     *   cantidad * precioUnitario - montoDescuento = subTotal
+     *   suma(subTotal) - descuentoAdicional = montoTotal
+     *
+     * @return array{0: array<int, array<string, mixed>>, 1: float, 2: float}
+     */
+    private function roundedAmounts(Venta $sale): array
+    {
+        $lines = [];
+        $sumSubTotal = 0.0;
+
+        foreach ($sale->detalles as $item) {
+            $quantity = $this->round2((float) $item->cantidad);
+            if ($quantity <= 0) {
+                $quantity = 0.01;
+            }
+
+            // subTotal de la línea antes del descuento comercial.
+            $subTotal = $this->round2((float) $item->subtotal);
+            if ($subTotal <= 0) {
+                // SIAT no acepta precioUnitario ni subTotal en cero: se factura
+                // el mínimo y la diferencia se compensa en descuentoAdicional.
+                $subTotal = $this->round2($quantity * 0.01);
+            }
+
+            // Se redondea hacia arriba para que cantidad * precioUnitario nunca
+            // quede por debajo del subTotal y el residuo sea un descuento >= 0.
+            $unitPrice = $this->ceil2($subTotal / $quantity);
+            $gross = $this->round2($quantity * $unitPrice);
+
+            $lines[] = [
+                'item' => $item,
+                'cantidad' => $quantity,
+                'precioUnitario' => $unitPrice,
+                'montoDescuento' => $this->round2($gross - $subTotal),
+                'subTotal' => $subTotal,
+            ];
+
+            $sumSubTotal = $this->round2($sumSubTotal + $subTotal);
+        }
+
+        $total = $this->round2((float) $sale->total);
+        $additionalDiscount = $this->round2($sumSubTotal - $total);
+
+        if ($additionalDiscount < 0) {
+            // El redondeo dejó las líneas por debajo del total cobrado: se
+            // factura la suma de las líneas para no declarar un descuento negativo.
+            $total = $sumSubTotal;
+            $additionalDiscount = 0.0;
+        }
+
+        if ($total <= 0) {
+            throw new RuntimeException('El monto total de la factura debe ser mayor a cero');
+        }
+
+        return [$lines, $total, $additionalDiscount];
+    }
+
+    private function round2(float $value): float
+    {
+        return round($value, 2);
+    }
+
+    private function ceil2(float $value): float
+    {
+        // El round previo absorbe el error binario (p. ej. 30.80 que se
+        // representa como 30.800000000000004 y ascendería a 30.81).
+        return ceil(round($value * 100, 6)) / 100;
+    }
+
+    private function money(float $value): string
+    {
+        return number_format($value, 2, '.', '');
     }
 
     private function appendFields(DOMDocument $document, \DOMElement $parent, array $fields): void
