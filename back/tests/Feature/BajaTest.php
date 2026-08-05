@@ -18,7 +18,7 @@ class BajaTest extends TestCase
         $admin = User::where('username', 'admin')->firstOrFail();
         Sanctum::actingAs($admin);
         $product = Producto::firstOrFail();
-        $product->update(['stock_inicial' => 10, 'precio_compra' => 12.50]);
+        $product->update(['stock_inicial' => 10, 'precio_compra' => 12.50, 'precio_venta' => 20]);
         $reason = BajaMotivo::where('codigo', 'MERMA')->firstOrFail();
 
         $baja = $this->postJson('/api/bajas', [
@@ -34,7 +34,8 @@ class BajaTest extends TestCase
             ->json();
 
         $this->assertSame(7.5, (float) $product->fresh()->stock_inicial);
-        $this->assertSame(31.25, (float) $baja['total_costo']);
+        $this->assertSame(50.0, (float) $baja['total_costo']);
+        $this->assertSame(20.0, (float) $baja['detalles'][0]['precio_venta']);
 
         $this->putJson("/api/bajas/{$baja['id']}/anular")
             ->assertOk()

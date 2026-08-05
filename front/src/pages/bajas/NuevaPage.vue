@@ -23,7 +23,7 @@
               <div class="product-image"><img v-if="product.foto" :src="photoUrl(product.foto)"/><q-icon v-else name="inventory_2" size="42px" color="grey-4"/></div>
               <q-card-section class="q-pa-xs">
                 <div class="text-caption text-weight-bold ellipsis-2-lines product-name">{{product.nombre}}</div>
-                <div class="row items-center"><span class="text-grey-8">Bs {{money(product.precio_compra)}}</span><q-space/><q-badge :color="product.stock_inicial>0?'positive':'negative'" :label="`Stock ${quantity(product.stock_inicial,product.unidad)} ${product.unidad}`"/></div>
+                <div class="row items-center"><span class="text-grey-8">Bs {{money(product.precio_venta)}}</span><q-space/><q-badge :color="product.stock_inicial>0?'positive':'negative'" :label="`Stock ${quantity(product.stock_inicial,product.unidad)} ${product.unidad}`"/></div>
               </q-card-section>
             </q-card>
           </div>
@@ -52,7 +52,7 @@
                 <q-item-label v-if="item.lote_etiqueta" caption class="text-orange-9">Lote {{item.lote_etiqueta}}</q-item-label>
                 <div class="fields-row">
                   <label class="field-label"><span>{{item.unidad==='KG'?'Kilos':'Cantidad'}}</span><input v-model.number="item.cantidad" class="qty-input" type="number" :min="minimumQty(item)" :max="item.maximo" :step="quantityStep(item)" @blur="validateQty(item)"></label>
-                  <label class="field-label"><span>Costo Bs</span><input :value="money(item.precio_compra*item.cantidad)" class="cost-input" readonly tabindex="-1"></label>
+                  <label class="field-label"><span>Valor Bs</span><input :value="money(item.precio_venta*item.cantidad)" class="cost-input" readonly tabindex="-1"></label>
                   <div class="item-actions"><q-btn dense flat round size="xs" icon="remove" @click="changeQty(item,-quantityStep(item))"/><q-btn dense flat round size="xs" icon="add" @click="changeQty(item,quantityStep(item))"/><q-btn dense flat round size="xs" icon="delete" color="negative" @click="removeItem(item)"/></div>
                 </div>
               </q-item-section>
@@ -62,7 +62,7 @@
           <q-separator/>
           <q-card-section class="q-pa-md">
             <q-input v-model="observation" dense outlined autogrow label="Observación" class="q-mb-sm"/>
-            <div class="row items-center text-h6 text-negative"><b>Costo de la baja</b><q-space/><b>Bs {{money(totalCost)}}</b></div>
+            <div class="row items-center text-h6 text-negative"><b>Valor de la baja</b><q-space/><b>Bs {{money(totalCost)}}</b></div>
           </q-card-section>
           <q-card-actions class="q-pa-sm"><q-btn class="full-width" color="negative" unelevated icon="save" label="Registrar baja" no-caps :disable="!items.length||!motive" :loading="saving" @click="confirmBaja"/></q-card-actions>
         </q-card>
@@ -77,7 +77,7 @@
             <q-input ref="quickQtyInput" v-model.number="quickQuantity" autofocus outlined dense type="number" :min="minimumQty(selectedProduct)" :max="availableStock" :step="quantityStep(selectedProduct)" :label="selectedProduct?.unidad==='KG'?'Kilos a dar de baja':'Cantidad a dar de baja'" class="col-12" input-class="text-h6 text-weight-bold" @focus="$event.target.select()"><template #prepend><q-icon name="scale"/></template></q-input>
             <q-select v-if="lots.length" v-model="quickLot" :options="lots" dense outlined clearable class="col-12" label="Lote (opcional)" :option-label="lotLabel" :loading="loadingLots"><template #prepend><q-icon name="inventory_2"/></template></q-select>
             <q-input v-model.trim="quickNote" outlined dense class="col-12" label="Detalle (opcional)" maxlength="255"/>
-            <div class="col-12 row items-center q-pa-sm rounded-borders bg-red-1 text-red-10"><span>Costo de la pérdida</span><q-space/><b class="text-h6">Bs {{money(Number(quickQuantity)*Number(selectedProduct?.precio_compra||0))}}</b></div>
+            <div class="col-12 row items-center q-pa-sm rounded-borders bg-red-1 text-red-10"><span>Valor de venta</span><q-space/><b class="text-h6">Bs {{money(Number(quickQuantity)*Number(selectedProduct?.precio_venta||0))}}</b></div>
           </q-card-section>
           <q-separator/><q-card-actions align="right" class="q-pa-sm"><q-btn flat dense label="Cancelar" no-caps v-close-popup/><q-btn type="submit" dense unelevated color="negative" icon="playlist_add" label="Agregar · Enter" no-caps/></q-card-actions>
         </q-form>
@@ -99,7 +99,7 @@ const photoUrl=path=>`${proxy.$imgBase}/images/${path}`,money=v=>Number(v||0).to
 const isWeighted=item=>item?.unidad==='KG',quantityStep=item=>isWeighted(item)?0.001:1,minimumQty=item=>quantityStep(item)
 const quantity=(value,unit)=>Number(value||0).toFixed(unit==='KG'?3:0)
 const lotLabel=lot=>`${lot.lote||'sin lote'} · vence ${lot.fecha_vencimiento||'—'} · ${Number(lot.cantidad_disponible).toFixed(3)}`
-const totalCost=computed(()=>items.value.reduce((sum,i)=>sum+Number(i.precio_compra)*Number(i.cantidad),0))
+const totalCost=computed(()=>items.value.reduce((sum,i)=>sum+Number(i.precio_venta)*Number(i.cantidad),0))
 // Stock libre del producto abierto, descontando lo que ya está en la lista de la baja.
 const availableStock=computed(()=>{if(!selectedProduct.value)return 0;const used=items.value.filter(i=>i.producto_id===selectedProduct.value.id).reduce((s,i)=>s+Number(i.cantidad||0),0);return Math.max(0,Number((Number(selectedProduct.value.stock_inicial)-used).toFixed(3)))})
 
@@ -134,7 +134,7 @@ function confirmProduct(){
   if(quickLot.value&&requested>Number(quickLot.value.cantidad_disponible)+.0001)return proxy.$alert.error(`El lote seleccionado solo tiene ${Number(quickLot.value.cantidad_disponible).toFixed(3)}`)
   const rounded=isWeighted(product)?Math.round(requested*1000)/1000:Math.floor(requested)
   items.value.push({key:`${product.id}-${++itemSequence}`,producto_id:product.id,nombre:product.nombre,unidad:product.unidad,foto:product.foto,
-    precio_compra:Number(product.precio_compra||0),cantidad:rounded,maximo:Number(product.stock_inicial),
+    precio_venta:Number(product.precio_venta||0),cantidad:rounded,maximo:Number(product.stock_inicial),
     lote_id:quickLot.value?.id||null,lote_etiqueta:quickLot.value?(quickLot.value.lote||'sin lote'):null,observacion:quickNote.value||null})
   productDialog.value=false;selectedProduct.value=null;search.value='';productsPage.value=1;loadProducts()
 }
@@ -176,4 +176,3 @@ onBeforeUnmount(()=>clearTimeout(productsSearchTimer))
 .qty-input:focus{outline:1px solid #e53935;border-color:#e53935}.item-actions{display:flex;align-items:center;margin-left:auto}.item-actions .q-btn{min-width:24px;min-height:24px}
 @media(max-width:1023px){.list-card{position:static}.product-grid{max-height:none}}@media(max-width:420px){.item-thumb{display:none}.fields-row{gap:3px;overflow-x:auto}.qty-input{width:72px}.cost-input{width:78px}}
 </style>
-

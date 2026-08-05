@@ -83,7 +83,7 @@ class BajaController extends Controller
                 $requestedByProduct[$product->id] = round(($requestedByProduct[$product->id] ?? 0) + $quantity, 3);
                 abort_if((float) $product->stock_inicial + 0.0001 < $requestedByProduct[$product->id], 422,
                     "Stock insuficiente para dar de baja {$product->nombre}");
-                $lineCost = round((float) $product->precio_compra * $quantity, 2);
+                $lineCost = round((float) $product->precio_venta * $quantity, 2);
                 $totalCost += $lineCost;
                 $items[] = [$product, $quantity, $lineCost, $detail['lote_id'] ?? null, $detail['observacion'] ?? null];
             }
@@ -109,6 +109,7 @@ class BajaController extends Controller
                     'foto' => $product->foto,
                     'cantidad' => $quantity,
                     'precio_compra' => $product->precio_compra,
+                    'precio_venta' => $product->precio_venta,
                     'total' => $lineCost,
                     'observacion' => $lineNote,
                 ]);

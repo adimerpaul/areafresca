@@ -6,7 +6,7 @@
     </div>
 
     <div class="kpi-row q-mb-sm">
-      <q-card flat bordered class="kpi-card"><q-card-section class="q-pa-sm row items-center"><q-avatar icon="payments" color="red-1" text-color="negative" size="38px"/><div class="q-ml-sm"><div class="text-caption text-grey-7">Costo de las bajas</div><div class="text-h6 text-weight-bold">Bs {{money(summary.costo)}}</div></div></q-card-section></q-card>
+      <q-card flat bordered class="kpi-card"><q-card-section class="q-pa-sm row items-center"><q-avatar icon="payments" color="red-1" text-color="negative" size="38px"/><div class="q-ml-sm"><div class="text-caption text-grey-7">Valor de las bajas</div><div class="text-h6 text-weight-bold">Bs {{money(summary.costo)}}</div></div></q-card-section></q-card>
       <q-card flat bordered class="kpi-card"><q-card-section class="q-pa-sm row items-center"><q-avatar icon="receipt_long" color="blue-1" text-color="primary" size="38px"/><div class="q-ml-sm"><div class="text-caption text-grey-7">Bajas registradas</div><div class="text-h6 text-weight-bold">{{summary.cantidad}}</div></div></q-card-section></q-card>
       <q-card flat bordered class="kpi-card kpi-motives"><q-card-section class="q-pa-sm"><div class="text-caption text-grey-7 q-mb-xs">Por motivo</div><div class="row q-gutter-xs"><q-badge v-for="m in summary.por_motivo" :key="m.nombre" outline color="negative" :label="`${m.nombre}: Bs ${money(m.costo)}`"/><span v-if="!summary.por_motivo.length" class="text-caption text-grey-6">Sin datos</span></div></q-card-section></q-card>
     </div>
@@ -41,15 +41,15 @@
           <div class="row text-caption text-grey-8 q-mb-xs"><span>Registró: <b>{{detail.usuario_nombre}}</b></span><q-space/><q-badge :color="detail.estado==='ANULADA'?'grey-6':'positive'" :label="detail.estado"/></div>
           <div v-if="detail.observacion" class="text-caption text-grey-7 q-mb-xs">Observación: {{detail.observacion}}</div>
           <q-markup-table flat bordered dense class="detail-table">
-            <thead><tr><th class="text-left">Producto</th><th class="text-right">Cantidad</th><th class="text-right">Costo unit.</th><th class="text-right">Total</th></tr></thead>
+            <thead><tr><th class="text-left">Producto</th><th class="text-right">Cantidad</th><th class="text-right">Precio venta</th><th class="text-right">Total</th></tr></thead>
             <tbody><tr v-for="d in detail.detalles||[]" :key="d.id">
               <td>{{d.nombre}}<div v-if="d.observacion" class="text-caption text-grey-6">{{d.observacion}}</div></td>
               <td class="text-right">{{quantity(d.cantidad,d.unidad)}} {{d.unidad}}</td>
-              <td class="text-right">Bs {{money(d.precio_compra)}}</td>
+              <td class="text-right">Bs {{money(d.precio_venta??d.precio_compra)}}</td>
               <td class="text-right text-weight-bold">Bs {{money(d.total)}}</td>
             </tr></tbody>
           </q-markup-table>
-          <div class="row items-center q-mt-sm q-pa-sm rounded-borders bg-red-1 text-red-10"><b>Costo total de la baja</b><q-space/><b class="text-h6">Bs {{money(detail.total_costo)}}</b></div>
+          <div class="row items-center q-mt-sm q-pa-sm rounded-borders bg-red-1 text-red-10"><b>Valor total de la baja</b><q-space/><b class="text-h6">Bs {{money(detail.total_costo)}}</b></div>
         </q-card-section>
       </q-card>
     </q-dialog>
@@ -119,4 +119,3 @@ onMounted(()=>{proxy.$axios.get('/bajas-catalogos').then(r=>motives.value=r.data
 .detail-table{max-height:300px;overflow:auto}
 @media(max-width:900px){.kpi-row{grid-template-columns:1fr}.kpi-motives{order:3}}
 </style>
-

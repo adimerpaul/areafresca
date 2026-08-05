@@ -10,12 +10,13 @@ class BajaDetalle extends Model
 
     protected $fillable = [
         'baja_id', 'producto_id', 'codigo', 'nombre', 'unidad', 'foto',
-        'cantidad', 'precio_compra', 'total', 'observacion',
+        'cantidad', 'precio_compra', 'precio_venta', 'total', 'observacion',
     ];
 
     protected $casts = [
         'cantidad' => 'decimal:3',
         'precio_compra' => 'decimal:4',
+        'precio_venta' => 'decimal:4',
         'total' => 'decimal:2',
     ];
 
