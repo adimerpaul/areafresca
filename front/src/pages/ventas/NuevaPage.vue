@@ -47,7 +47,7 @@
                 <q-item-label lines="1" class="text-caption text-weight-medium cart-item-name">{{item.nombre}}</q-item-label>
                 <div class="cart-fields-row">
                   <label class="price-label"><span>{{item.unidad==='KG'?'Kilos':'Cantidad'}}</span><input v-model.number="item.cantidad" class="qty-input" type="number" :min="minimumQty(item)" :step="quantityStep(item)" @blur="validateQty(item)"></label>
-                  <label class="price-label"><span>{{item.unidad==='KG'?'Precio Bs/kg':'Precio Bs'}}</span><input v-model.number="item.precio_venta" class="price-input" type="number" min="0" step="0.0001" @blur="syncLineTotal(item)"></label>
+                  <label class="price-label"><span>{{item.unidad==='KG'?'Precio Bs/kg':'Precio Bs'}}</span><input v-model.number="item.precio_venta" class="price-input" type="number" min="0" step="0.0001" :list="`price-list-${item.line_id}`" @input="syncLineTotal(item)" @blur="syncLineTotal(item)"><datalist :id="`price-list-${item.line_id}`"><option v-for="price in priceOptions(item)" :key="price.label" :value="price.value" :label="`${price.label} · Bs ${money(price.value)}`"/></datalist></label>
                   <label class="total-label"><span>Total</span><input v-model.number="item.total_editable" class="total-input" type="number" min="0" step="0.01" @keyup.enter="$event.target.blur()" @blur="applyLineTotal(item)"></label>
                   <div class="cart-actions"><q-btn dense flat round size="xs" icon="remove" @click="changeQty(item,-quantityStep(item))"/><q-btn dense flat round size="xs" icon="add" @click="changeQty(item,quantityStep(item))"/><q-btn dense flat round size="xs" icon="delete" color="negative" @click="removeItem(item)"/></div>
                 </div>
@@ -72,7 +72,7 @@
           <q-card-section class="row items-center q-py-sm bg-primary text-white"><q-avatar rounded color="white" text-color="primary" size="38px"><img v-if="selectedProduct?.foto" :src="photoUrl(selectedProduct.foto)"/><q-icon v-else name="inventory_2"/></q-avatar><div class="q-ml-sm col"><div class="text-subtitle1 text-weight-bold ellipsis">{{selectedProduct?.nombre}}</div><div class="text-caption">Agregar al carrito</div></div><q-btn flat round dense icon="close" color="white" v-close-popup/></q-card-section>
           <q-card-section class="row q-col-gutter-sm q-pa-md">
             <q-input ref="quickQtyInput" v-model.number="quickQuantity" autofocus outlined dense type="number" :min="minimumQty(selectedProduct)" :step="quantityStep(selectedProduct)" :label="selectedProduct?.unidad==='KG'?'Kilos':'Cantidad'" class="col-12 col-sm-6" input-class="text-h6 text-weight-bold" @focus="$event.target.select()"><template #prepend><q-icon name="scale"/></template></q-input>
-            <q-input v-model.number="quickPrice" outlined dense type="number" min="0" step="0.0001" :label="selectedProduct?.unidad==='KG'?'Precio Bs/kg':'Precio Bs'" class="col-12 col-sm-6" input-class="text-h6 text-weight-bold" @focus="$event.target.select()"><template #prepend><q-icon name="payments"/></template></q-input>
+            <q-select v-model="quickPrice" :options="priceOptions(selectedProduct)" :option-label="priceOptionLabel" option-value="value" emit-value map-options use-input fill-input hide-selected input-debounce="0" new-value-mode="add-unique" outlined dense :display-value="quickPrice===null||quickPrice===''?'':money(quickPrice)" :label="selectedProduct?.unidad==='KG'?'Precio Bs/kg':'Precio Bs'" prefix="Bs" class="col-12 col-sm-6" input-class="text-h6 text-weight-bold"><template #prepend><q-icon name="payments"/></template><template #option="scope"><q-item v-bind="scope.itemProps"><q-item-section><q-item-label>{{scope.opt.label}}</q-item-label><q-item-label caption>Bs {{money(scope.opt.value)}}{{selectedProduct?.unidad==='KG'?'/kg':''}}</q-item-label></q-item-section></q-item></template></q-select>
             <div class="col-12 row items-center q-pa-sm rounded-borders bg-orange-1 text-orange-10"><span>Total</span><q-space/><b class="text-h6">Bs {{money(Number(quickQuantity)*Number(quickPrice))}}</b></div>
           </q-card-section>
           <q-separator/><q-card-actions align="right" class="q-pa-sm"><q-btn flat dense label="Cancelar" no-caps v-close-popup/><q-btn type="submit" dense unelevated color="positive" icon="add_shopping_cart" label="Agregar · Enter" no-caps/></q-card-actions>
@@ -122,6 +122,8 @@ let processingBarcode=false,clientSearchTimer=null,productsSearchTimer=null,chec
 const photoUrl=path=>`${proxy.$imgBase}/images/${path}`,money=v=>Number(v||0).toFixed(2)
 const isWeighted=item=>item?.unidad==='KG',quantityStep=item=>isWeighted(item)?0.001:1,minimumQty=item=>quantityStep(item)
 const quantity=(value,unit)=>Number(value||0).toFixed(unit==='KG'?3:0)
+const priceOptions=product=>[1,2,3,4].map(tier=>({label:`Precio ${tier}`,value:product?.[`precio_${tier}`]})).filter(option=>option.value!==null&&option.value!==''&&Number(option.value)>=0).map(option=>({...option,value:Number(option.value)}))
+const priceOptionLabel=option=>money(typeof option==='object'?option.value:option)
 const subtotal=computed(()=>cart.value.reduce((sum,i)=>sum+Number(i.precio_venta)*i.cantidad,0))
 const validDiscount=computed(()=>Math.min(Math.max(Number(discount.value)||0,0),subtotal.value))
 const total=computed(()=>subtotal.value-validDiscount.value)
