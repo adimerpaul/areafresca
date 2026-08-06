@@ -3,10 +3,11 @@ import QRCode from 'qrcode'
 import { companyData } from './empresa'
 
 const css = `
-@page{size:80mm auto;margin:4mm}body{margin:0;color:#111;font-family:Arial,sans-serif}
-.ticket{width:72mm;font-size:10px}.center{text-align:center}.right{text-align:right}.bold{font-weight:700}
+/* Sin margen superior: la impresora ya deja su propio espacio al alimentar el papel. */
+@page{size:80mm auto;margin:0 4mm 4mm}html,body{margin:0;padding:0;color:#111;font-family:Arial,sans-serif}
+.ticket{width:72mm;font-size:10px}.ticket>*:first-child{margin-top:0}.center{text-align:center}.right{text-align:right}.bold{font-weight:700}
 .title{font-size:13px;font-weight:700}.subtitle{font-size:11px;font-weight:700}.company{font-size:11px}
-.logo{display:block;width:62px;max-height:62px;object-fit:contain;margin:0 auto 4px}
+.logo{display:block;width:150px;max-height:150px;object-fit:contain;margin:0 auto 6px}
 .line{border-top:1.5px dashed #222;margin:7px 0}.field{display:grid;grid-template-columns:47% 53%;margin:2px 0}
 .field-label{text-align:right;font-weight:700;padding-right:8px}.break{overflow-wrap:anywhere}
 table{width:100%;border-collapse:collapse}th,td{padding:2px 1px;vertical-align:top}th{font-weight:700}
