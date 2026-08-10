@@ -49,6 +49,9 @@ class VentaController extends Controller
             // Facturas que Impuestos rechazó: el cliente tiene un papel que no vale.
             'facturas_rechazadas' => (clone $query)
                 ->where('tipo_comprobante', 'FACTURA')->where('estado_siat', 'OBSERVADA')->count(),
+            // Facturas con CUF cuyo envío falló y no quedó programado para reenviarse.
+            'facturas_envio_invalido' => (clone $query)
+                ->where('tipo_comprobante', 'FACTURA')->whereIn('estado_siat', ElectronicInvoiceService::FAILED_SEND_STATES)->count(),
             'usuarios' => User::orderBy('username')->get(['id', 'name', 'username']),
         ]);
     }
@@ -365,6 +368,10 @@ class VentaController extends Controller
                 ->where('estado', 'COMPLETADA');
         } elseif ($request->input('envio') === 'rechazadas') {
             $query->where('tipo_comprobante', 'FACTURA')->where('estado_siat', 'OBSERVADA')
+                ->where('estado', 'COMPLETADA');
+        } elseif ($request->input('envio') === 'envio_invalido') {
+            // Mismo criterio que el contador de "facturas_envio_invalido" del resumen.
+            $query->where('tipo_comprobante', 'FACTURA')->whereIn('estado_siat', ElectronicInvoiceService::FAILED_SEND_STATES)
                 ->where('estado', 'COMPLETADA');
         }
 

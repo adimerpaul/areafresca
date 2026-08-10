@@ -2,12 +2,12 @@
 
 namespace App\Services\Siat;
 
-use App\Services\InvoiceDeliveryService;
 use App\Models\CertificadoDigital;
 use App\Models\Configuracion;
-use App\Models\SiatToken;
 use App\Models\SiatCufd;
+use App\Models\SiatToken;
 use App\Models\Venta;
+use App\Services\InvoiceDeliveryService;
 use Carbon\Carbon;
 use DOMDocument;
 use Illuminate\Support\Facades\Storage;
@@ -18,6 +18,14 @@ class ElectronicInvoiceService
 {
     // false = emisión en línea; true = emisión fuera de línea.
     private const OFFLINE_MODE = false;
+
+    /**
+     * Estados en los que la factura ya tiene CUF y XML firmados pero el envío en
+     * línea no llegó al SIN y nadie lo va a reintentar solo. Desde aquí sólo se
+     * sale a mano, reconvirtiéndola a fuera de línea con
+     * prepareFailedInvoiceForEvent() para mandarla como evento significativo.
+     */
+    public const FAILED_SEND_STATES = ['ERROR_ENVIO', 'ENVIANDO', 'PENDIENTE_CONFIGURACION'];
 
     public function __construct(
         private CufGenerator $cufGenerator,
@@ -146,6 +154,67 @@ class ElectronicInvoiceService
         } catch (\Throwable $exception) {
             $this->handleFailure($sale, $exception);
         }
+
+        return $sale->fresh();
+    }
+
+    /**
+     * Reconvierte a emisión fuera de línea una factura cuyo envío en línea falló,
+     * para que pueda salir después en un paquete de evento significativo.
+     *
+     * Hay que regenerar CUF y XML: el original se firmó con tipo de emisión 1
+     * (en línea) y el paquete se manda con codigoEmision 2, así que el SIN
+     * rechazaría el archivo tal como está. Se conservan el CUFD y la fecha de
+     * emisión originales para no mover el periodo que cubrirá el evento.
+     *
+     * Esta conversión es siempre manual: issue() nunca la hace sola al fallar.
+     */
+    public function prepareFailedInvoiceForEvent(Venta $sale): Venta
+    {
+        if ($sale->tipo_comprobante !== 'FACTURA' || $sale->online || ! in_array($sale->estado_siat, self::FAILED_SEND_STATES, true)) {
+            throw new RuntimeException('Sólo se puede reprogramar una factura cuyo envío a Impuestos falló');
+        }
+        if ($sale->estado !== 'COMPLETADA') {
+            throw new RuntimeException('La venta está anulada; no se puede enviar a Impuestos');
+        }
+        if (! $sale->cuf || ! $sale->xml_path) {
+            throw new RuntimeException('La factura nunca llegó a generarse: no tiene CUF ni XML que enviar');
+        }
+
+        $company = Configuracion::firstOrFail();
+        $certificate = CertificadoDigital::where('activo', true)->where('valido_hasta', '>', now())->latest()->first();
+        if (! $certificate) {
+            throw new RuntimeException('No hay un certificado digital vigente para firmar la factura');
+        }
+        $cufd = SiatCufd::where('codigo', $sale->cufd)->first();
+        if (! $cufd) {
+            throw new RuntimeException('No se encontró el CUFD con el que se emitió la factura');
+        }
+
+        $emissionDate = Carbon::parse($sale->fecha_emision_siat ?: $sale->fecha);
+        if ($emissionDate->lt($cufd->created_at) || $emissionDate->gt($cufd->vence_en)) {
+            throw new RuntimeException('La fecha de emisión quedó fuera de la vigencia del CUFD original; corrija la fecha antes de enviar');
+        }
+
+        [$catalogActivity, $catalogProduct] = $this->siat->catalogDefaults();
+        $activity = config('siat.actividad_economica') ?: $catalogActivity;
+        $productCode = config('siat.codigo_producto_sin') ?: $catalogProduct;
+        $context = compact('company', 'certificate', 'cufd', 'emissionDate', 'activity', 'productCode');
+
+        $previousStatus = $sale->estado_siat;
+        $this->prepareOfflineInvoice($sale->loadMissing('detalles'), $context);
+        $sale->update([
+            'estado_siat' => 'PENDIENTE_EVENTO',
+            'online' => false,
+            'fecha_emision_siat' => $emissionDate,
+            'siat_mensaje' => 'Reprogramada como evento significativo tras fallar el envío en línea',
+        ]);
+
+        $this->log('Factura con envío fallido reprogramada para evento significativo', [
+            'venta_id' => $sale->id,
+            'estado_previo' => $previousStatus,
+            'fecha_emision_siat' => $emissionDate->toIso8601String(),
+        ]);
 
         return $sale->fresh();
     }
