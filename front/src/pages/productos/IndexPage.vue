@@ -6,7 +6,7 @@
         <div class="text-caption text-grey-7">Inventario inicial, precios e imágenes</div>
       </div>
       <q-space />
-      <q-btn-dropdown dense flat color="primary" icon="download" label="Exportar" no-caps class="q-mr-xs"><q-list dense><q-item clickable v-close-popup @click="download('excel')"><q-item-section avatar><q-icon name="table_view" color="positive"/></q-item-section><q-item-section>Excel</q-item-section></q-item><q-item clickable v-close-popup @click="download('saldo')"><q-item-section avatar><q-icon name="inventory" color="amber-8"/></q-item-section><q-item-section>Saldo Excel</q-item-section></q-item><q-item clickable v-close-popup @click="download('pdf')"><q-item-section avatar><q-icon name="picture_as_pdf" color="negative"/></q-item-section><q-item-section>PDF</q-item-section></q-item></q-list></q-btn-dropdown>
+      <q-btn-dropdown dense flat color="primary" icon="download" label="Exportar" no-caps class="q-mr-xs"><q-list dense><q-item clickable v-close-popup @click="download('excel')"><q-item-section avatar><q-icon name="table_view" color="positive"/></q-item-section><q-item-section>Excel</q-item-section></q-item><q-item clickable v-close-popup @click="download('saldo')"><q-item-section avatar><q-icon name="inventory" color="amber-8"/></q-item-section><q-item-section>Saldo Excel</q-item-section></q-item><q-item clickable v-close-popup @click="openKardex"><q-item-section avatar><q-icon name="swap_vert" color="teal-8"/></q-item-section><q-item-section>Ingreso y egreso</q-item-section></q-item><q-item clickable v-close-popup @click="download('pdf')"><q-item-section avatar><q-icon name="picture_as_pdf" color="negative"/></q-item-section><q-item-section>PDF</q-item-section></q-item></q-list></q-btn-dropdown>
       <q-btn v-if="can('Editar Productos')" dense flat color="primary" icon="category" label="Categorías" no-caps class="q-mr-xs" @click="openCategories" />
       <q-btn v-if="can('Crear Productos')" dense color="primary" icon="add" label="Nuevo" no-caps @click="openForm()" />
     </div>
@@ -97,6 +97,22 @@
       </q-card>
     </q-dialog>
 
+    <q-dialog v-model="kardexDialog">
+      <q-card style="width:460px;max-width:96vw">
+        <q-form @submit.prevent="downloadKardex">
+          <q-card-section class="row items-center q-py-sm"><q-avatar color="teal-8" text-color="white" icon="swap_vert"/><div class="q-ml-sm"><div class="text-subtitle1 text-weight-bold">Ingreso y egreso</div><div class="text-caption text-grey-7">Movimientos de stock producto por producto</div></div><q-space/><q-btn flat round dense icon="close" v-close-popup/></q-card-section>
+          <q-separator/>
+          <q-card-section class="row q-col-gutter-sm">
+            <q-input v-model="kardexForm.desde" type="date" outlined dense label="Fecha desde" class="col-6" :rules="[required]" hide-bottom-space/>
+            <q-input v-model="kardexForm.hasta" type="date" outlined dense label="Fecha hasta" class="col-6" :rules="[required]" hide-bottom-space/>
+            <q-banner rounded class="col-12 bg-teal-1 text-teal-10"><q-icon name="info" class="q-mr-xs"/>Incluye compras, ventas y bajas, más una fila en sentido contrario por cada anulación. Se respetan los filtros de la pantalla.</q-banner>
+          </q-card-section>
+          <q-separator/>
+          <q-card-actions align="right"><q-btn flat label="Cancelar" no-caps v-close-popup/><q-btn type="submit" unelevated color="teal-8" icon="download" label="Descargar" no-caps :loading="kardexLoading"/></q-card-actions>
+        </q-form>
+      </q-card>
+    </q-dialog>
+
     <q-dialog v-model="categoriesDialog">
       <q-card style="width:620px;max-width:96vw">
         <q-card-section class="row items-center q-py-sm"><div class="text-subtitle1 text-weight-bold">Administrar categorías</div><q-space/><q-btn flat round dense icon="close" v-close-popup/></q-card-section>
@@ -126,6 +142,7 @@ import { getCurrentInstance, onMounted, reactive, ref } from 'vue'
 const { proxy } = getCurrentInstance()
 const rows = ref([]), loading = ref(false), saving = ref(false), dialog = ref(false)
 const categoriesDialog = ref(false)
+const kardexDialog = ref(false), kardexLoading = ref(false), kardexForm = reactive({ desde:'', hasta:'' })
 const photo = ref(null), photoPreview = ref('')
 const search = ref(''), category = ref(null), unit = ref(null), stockStatus = ref(null), stockMin = ref(null), stockMax = ref(null), sortOrder = ref('nombre_asc')
 const catalogs = reactive({ categorias: [], unidades: [] })
@@ -167,7 +184,11 @@ function onRequest ({ pagination: p }) {
     .catch(e => proxy.$alert.error(e.response?.data?.message || 'No se pudieron cargar los productos'))
     .finally(() => { loading.value=false })
 }
-async function download(type){try{const response=await proxy.$axios.get(`/productos-exportar/${type}`,{params:filterParams(),responseType:'blob'});const url=URL.createObjectURL(response.data),a=document.createElement('a');a.href=url;a.download=type==='saldo'?'saldo-productos.xlsx':`productos.${type==='excel'?'xlsx':'pdf'}`;a.click();URL.revokeObjectURL(url)}catch{proxy.$alert.error('No se pudo exportar el reporte')}}
+function saveBlob(data,name){const url=URL.createObjectURL(data),a=document.createElement('a');a.href=url;a.download=name;a.click();URL.revokeObjectURL(url)}
+async function download(type){try{const response=await proxy.$axios.get(`/productos-exportar/${type}`,{params:filterParams(),responseType:'blob'});saveBlob(response.data,type==='saldo'?'saldo-productos.xlsx':`productos.${type==='excel'?'xlsx':'pdf'}`)}catch{proxy.$alert.error('No se pudo exportar el reporte')}}
+// Por defecto el último mes, que es el corte con el que se venía sacando este reporte.
+function openKardex(){const hoy=new Date(),antes=new Date(Date.now()-29*86400000),iso=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;Object.assign(kardexForm,{desde:iso(antes),hasta:iso(hoy)});kardexDialog.value=true}
+async function downloadKardex(){kardexLoading.value=true;try{const response=await proxy.$axios.get('/productos-exportar/ingreso-egreso',{params:{...filterParams(),...kardexForm},responseType:'blob'});saveBlob(response.data,`ingreso y egreso ${kardexForm.hasta.slice(8,10)}-${kardexForm.hasta.slice(5,7)}-${kardexForm.hasta.slice(2,4)}.xlsx`);kardexDialog.value=false}catch{proxy.$alert.error('No se pudo exportar el reporte de ingreso y egreso')}finally{kardexLoading.value=false}}
 function loadCatalogs () {
   return proxy.$axios.get('/productos-catalogos').then(({data}) => {
     catalogs.categorias=data.categorias

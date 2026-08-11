@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Exports\IngresoEgresoExport;
 use App\Exports\ProductosExport;
 use App\Exports\ProductosSaldoExport;
 use App\Models\Categoria;
 use App\Models\Producto;
+use App\Services\KardexService;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\Rule;
@@ -38,6 +41,26 @@ class ProductoController extends Controller
         return Excel::download(new ProductosSaldoExport($this->filteredQuery($request)->get()), 'saldo-productos.xlsx');
     }
 
+    public function exportIngresoEgreso(Request $request, KardexService $kardex)
+    {
+        $this->authorizeAction($request, 'Ver Productos');
+        $data = $request->validate([
+            'desde' => ['nullable', 'date'],
+            'hasta' => ['nullable', 'date'],
+        ]);
+
+        $from = ! empty($data['desde']) ? Carbon::parse($data['desde'])->startOfDay() : null;
+        $to = ! empty($data['hasta']) ? Carbon::parse($data['hasta'])->endOfDay() : null;
+        if ($from && $to && $from->gt($to)) {
+            [$from, $to] = [$to->copy()->startOfDay(), $from->copy()->endOfDay()];
+        }
+
+        $movements = $kardex->movements($this->filteredQuery($request)->pluck('id'), $from, $to);
+        $name = 'ingreso y egreso '.($to ?: now())->format('d-m-y').'.xlsx';
+
+        return Excel::download(new IngresoEgresoExport($movements), $name);
+    }
+
     public function exportPdf(Request $request)
     {
         $this->authorizeAction($request, 'Ver Productos');
@@ -55,13 +78,25 @@ class ProductoController extends Controller
                 ->orWhere('codigo_barras', 'like', "%{$search}%")
                 ->orWhere('categoria', 'like', "%{$search}%"));
         }
-        if ($categoriaId = $request->integer('categoria_id')) $query->where('categoria_id', $categoriaId);
-        if ($unidad = trim((string) $request->input('unidad'))) $query->where('unidad', $unidad);
-        if ($request->filled('stock_min')) $query->where('stock_inicial', '>=', (float) $request->input('stock_min'));
-        if ($request->filled('stock_max')) $query->where('stock_inicial', '<=', (float) $request->input('stock_max'));
-        if ($request->input('estado_stock') === 'sin_stock') $query->where('stock_inicial', '<=', 0);
-        elseif ($request->input('estado_stock') === 'bajo') $query->where('stock_inicial', '>', 0)->where('stock_inicial', '<=', 10);
-        elseif ($request->input('estado_stock') === 'disponible') $query->where('stock_inicial', '>', 10);
+        if ($categoriaId = $request->integer('categoria_id')) {
+            $query->where('categoria_id', $categoriaId);
+        }
+        if ($unidad = trim((string) $request->input('unidad'))) {
+            $query->where('unidad', $unidad);
+        }
+        if ($request->filled('stock_min')) {
+            $query->where('stock_inicial', '>=', (float) $request->input('stock_min'));
+        }
+        if ($request->filled('stock_max')) {
+            $query->where('stock_inicial', '<=', (float) $request->input('stock_max'));
+        }
+        if ($request->input('estado_stock') === 'sin_stock') {
+            $query->where('stock_inicial', '<=', 0);
+        } elseif ($request->input('estado_stock') === 'bajo') {
+            $query->where('stock_inicial', '>', 0)->where('stock_inicial', '<=', 10);
+        } elseif ($request->input('estado_stock') === 'disponible') {
+            $query->where('stock_inicial', '>', 10);
+        }
 
         return match ($request->input('orden')) {
             'stock_desc' => $query->orderByDesc('stock_inicial'),
