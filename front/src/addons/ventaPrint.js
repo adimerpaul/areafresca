@@ -57,11 +57,11 @@ function detailRows (sale) {
   `).join('')
 }
 
-function invoiceMarkup (sale, company, logoUrl, qrDataUrl) {
+// La factura va sin logo: la impresora térmica tarda en cargarlo y retrasa la impresión.
+function invoiceMarkup (sale, company, qrDataUrl) {
   const issuedAt = sale.fecha_emision_siat || sale.fecha
   const offline = sale.estado_siat === 'PENDIENTE_EVENTO'
   return `<div class="ticket">
-    ${logoUrl ? `<img class="logo" src="${esc(logoUrl)}" alt="Logo">` : ''}
     <div class="center">
       <div class="title">FACTURA</div><div class="subtitle">CON DERECHO A CRÉDITO FISCAL</div>
       <div class="company">${esc(company.nombre_empresa || 'Area Fresca')}</div>
@@ -105,15 +105,14 @@ function receiptMarkup (sale, company, logoUrl) {
 
 export async function printSale (sale) {
   const company = companyData()
-  const logoUrl = company.logo_url || `${window.location.origin}/bean-logo.svg`
   const isInvoice = sale.tipo_comprobante === 'FACTURA'
   let markup
 
   if (isInvoice && sale.cuf) {
     const qrDataUrl = await QRCode.toDataURL(qrUrl(sale, company), { width: 320, margin: 1, errorCorrectionLevel: 'M' })
-    markup = invoiceMarkup(sale, company, logoUrl, qrDataUrl)
+    markup = invoiceMarkup(sale, company, qrDataUrl)
   } else {
-    markup = receiptMarkup(sale, company, logoUrl)
+    markup = receiptMarkup(sale, company, company.logo_url || `${window.location.origin}/bean-logo.svg`)
   }
 
   const element = document.createElement('div')
