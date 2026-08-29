@@ -2,12 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Exports\AlmacenesExport;
+use App\Exports\AlmacenRevisionExport;
 use App\Models\Almacen;
 use App\Models\AlmacenDetalle;
+use App\Models\Configuracion;
 use App\Models\Lote;
 use App\Models\Producto;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Maatwebsite\Excel\Facades\Excel;
 
 /**
  * RevisiÃ³n fÃ­sica del stock de la tienda. El documento se llena entre varias
@@ -28,15 +33,43 @@ class AlmacenController extends Controller
     public function summary(Request $request)
     {
         $this->authorizeAction($request, 'Ver Almacenes');
-        $query = $this->filteredQuery($request);
 
-        return response()->json([
-            'en_revision' => (clone $query)->where('estado', 'BORRADOR')->count(),
-            'aplicados' => (clone $query)->where('estado', 'APLICADO')->count(),
-            'productos_revisados' => (int) AlmacenDetalle::whereIn('almacen_id', (clone $query)->select('id'))->count(),
-            'diferencia_valor' => (float) AlmacenDetalle::whereIn('almacen_id', (clone $query)->where('estado', 'APLICADO')->select('id'))
-                ->selectRaw('COALESCE(SUM(diferencia * precio_compra), 0) as total')->value('total'),
-        ]);
+        return response()->json($this->summaryData($request));
+    }
+
+    /** Excel del listado, con los mismos filtros que se ven en la pantalla. */
+    public function exportExcel(Request $request)
+    {
+        $this->authorizeAction($request, 'Ver Almacenes');
+        $almacenes = $this->filteredQuery($request)->withCount('detalles')->latest('fecha')->get();
+
+        return Excel::download(
+            new AlmacenesExport($almacenes, $this->summaryData($request), $this->exportMeta($request, $this->listFilterLabels($request))),
+            'almacenes_'.now()->format('Ymd_His').'.xlsx'
+        );
+    }
+
+    /**
+     * Excel de una revisión: detalle, lotes y avance por usuario. Lo usan tanto
+     * la pantalla de llenado como la de avance, filtrando por producto, por quién
+     * lo cargó y por el horario en que se registró.
+     */
+    public function exportRevision(Request $request, Almacen $almacen)
+    {
+        $this->authorizeAction($request, 'Ver Almacenes');
+        $rows = $this->progressRows($almacen, $request);
+        $resumen = $this->progressSummary($rows);
+
+        if ($request->boolean('solo_diferencias')) {
+            $rows = $rows->filter(fn ($detail) => abs((float) $detail->diferencia_actual) > 0.0001)->values();
+        }
+
+        $numero = preg_replace('/[^A-Za-z0-9\-]/', '', (string) ($almacen->numero ?: $almacen->id));
+
+        return Excel::download(
+            new AlmacenRevisionExport($almacen, $rows, $resumen, $this->exportMeta($request, $this->detailFilterLabels($request))),
+            "revision_{$numero}_".now()->format('Ymd_His').'.xlsx'
+        );
     }
 
     public function show(Request $request, Almacen $almacen)
@@ -50,32 +83,9 @@ class AlmacenController extends Controller
     public function progress(Request $request, Almacen $almacen)
     {
         $this->authorizeAction($request, 'Ver Almacenes');
-        $details = $almacen->detalles()->with(['producto:id,stock_inicial', 'conteos'])->orderBy('nombre')->get();
-        $applied = $almacen->estado === 'APLICADO';
+        $rows = $this->progressRows($almacen, $request);
 
-        $rows = $details->map(function ($detail) use ($applied) {
-            $system = $applied ? (float) $detail->stock_anterior : (float) ($detail->producto?->stock_inicial ?? $detail->stock_sistema);
-            $counted = (float) $detail->cantidad;
-            $detail->stock_actual = $system;
-            $detail->diferencia_actual = round($counted - $system, 3);
-
-            return $detail;
-        });
-
-        $withDifference = $rows->filter(fn ($d) => abs((float) $d->diferencia_actual) > 0.0001);
-
-        return response()->json([
-            'almacen' => $almacen,
-            'detalles' => $rows->values(),
-            'total_productos' => Producto::count(),
-            'revisados' => $rows->count(),
-            'con_diferencia' => $withDifference->count(),
-            'sin_diferencia' => $rows->count() - $withDifference->count(),
-            'diferencia_valor' => round($rows->sum(fn ($d) => (float) $d->diferencia_actual * (float) $d->precio_compra), 2),
-            'por_usuario' => $rows->groupBy('usuario_nombre')->map(fn ($group, $name) => [
-                'usuario' => $name ?: 'â€”', 'productos' => $group->count(),
-            ])->values(),
-        ]);
+        return response()->json(['almacen' => $almacen, 'detalles' => $rows] + $this->progressSummary($rows));
     }
 
     public function store(Request $request)
@@ -427,8 +437,147 @@ class AlmacenController extends Controller
         if ($estado = trim((string) $request->input('estado'))) {
             $query->where('estado', $estado);
         }
+        // Horario de creación: sirve para separar los turnos dentro del rango de fechas.
+        if ($fromTime = $this->timeBound($request->input('hora_desde'), false)) {
+            $query->whereTime('fecha', '>=', $fromTime);
+        }
+        if ($toTime = $this->timeBound($request->input('hora_hasta'), true)) {
+            $query->whereTime('fecha', '<=', $toTime);
+        }
 
         return $query;
+    }
+
+    private function summaryData(Request $request): array
+    {
+        $query = $this->filteredQuery($request);
+
+        return [
+            'en_revision' => (clone $query)->where('estado', 'BORRADOR')->count(),
+            'aplicados' => (clone $query)->where('estado', 'APLICADO')->count(),
+            'anulados' => (clone $query)->where('estado', 'ANULADO')->count(),
+            'productos_revisados' => (int) AlmacenDetalle::whereIn('almacen_id', (clone $query)->select('id'))->count(),
+            'diferencia_valor' => (float) AlmacenDetalle::whereIn('almacen_id', (clone $query)->where('estado', 'APLICADO')->select('id'))
+                ->selectRaw('COALESCE(SUM(diferencia * precio_compra), 0) as total')->value('total'),
+        ];
+    }
+
+    /**
+     * Líneas de la revisión con el stock del sistema y la diferencia al día de
+     * hoy. Acepta filtros por producto, por quién lo cargó y por el horario en
+     * que se registró, para que el Excel salga igual a lo que se está mirando.
+     */
+    private function progressRows(Almacen $almacen, Request $request): Collection
+    {
+        $query = $almacen->detalles()->with(['producto:id,stock_inicial', 'conteos'])->orderBy('nombre');
+
+        if ($name = trim((string) $request->input('nombre'))) {
+            $query->where(fn ($q) => $q->where('nombre', 'like', "%{$name}%")
+                ->orWhere('codigo', 'like', "%{$name}%")
+                ->orWhere('lote', 'like', "%{$name}%"));
+        }
+        if ($user = trim((string) $request->input('usuario'))) {
+            $query->where('usuario_nombre', 'like', "%{$user}%");
+        }
+        if ($from = $request->date('desde')) {
+            $query->whereDate('almacen_detalles.created_at', '>=', $from);
+        }
+        if ($to = $request->date('hasta')) {
+            $query->whereDate('almacen_detalles.created_at', '<=', $to);
+        }
+        if ($fromTime = $this->timeBound($request->input('hora_desde'), false)) {
+            $query->whereTime('almacen_detalles.created_at', '>=', $fromTime);
+        }
+        if ($toTime = $this->timeBound($request->input('hora_hasta'), true)) {
+            $query->whereTime('almacen_detalles.created_at', '<=', $toTime);
+        }
+
+        $applied = $almacen->estado === 'APLICADO';
+
+        return $query->get()->map(function ($detail) use ($applied) {
+            $system = $applied ? (float) $detail->stock_anterior : (float) ($detail->producto?->stock_inicial ?? $detail->stock_sistema);
+            $detail->stock_actual = $system;
+            $detail->diferencia_actual = round((float) $detail->cantidad - $system, 3);
+
+            return $detail;
+        })->values();
+    }
+
+    private function progressSummary(Collection $rows): array
+    {
+        $withDifference = $rows->filter(fn ($d) => abs((float) $d->diferencia_actual) > 0.0001);
+
+        return [
+            'total_productos' => Producto::count(),
+            'revisados' => $rows->count(),
+            'con_diferencia' => $withDifference->count(),
+            'sin_diferencia' => $rows->count() - $withDifference->count(),
+            'sobrante' => round($withDifference->sum(fn ($d) => max(0, (float) $d->diferencia_actual)), 3),
+            'faltante' => round($withDifference->sum(fn ($d) => max(0, -(float) $d->diferencia_actual)), 3),
+            'diferencia_valor' => round($rows->sum(fn ($d) => (float) $d->diferencia_actual * (float) $d->precio_compra), 2),
+            'por_usuario' => $rows->groupBy('usuario_nombre')->map(fn ($group, $name) => [
+                'usuario' => $name ?: '—', 'productos' => $group->count(),
+            ])->values(),
+        ];
+    }
+
+    private function exportMeta(Request $request, array $filtros): array
+    {
+        return [
+            'empresa' => Configuracion::value('nombre_empresa') ?: 'Area Fresca',
+            'usuario' => $request->user()?->name ?? '',
+            'filtros' => $filtros,
+        ];
+    }
+
+    private function listFilterLabels(Request $request): array
+    {
+        return array_filter([
+            'Nombre o número' => trim((string) $request->input('q')) ?: null,
+            'Estado' => ($estado = trim((string) $request->input('estado'))) ? ($estado === 'BORRADOR' ? 'EN REVISIÓN' : $estado) : null,
+            'Desde' => $request->date('desde')?->format('d/m/Y'),
+            'Hasta' => $request->date('hasta')?->format('d/m/Y'),
+            'Horario de creación' => $this->scheduleLabel($request),
+        ]);
+    }
+
+    private function detailFilterLabels(Request $request): array
+    {
+        return array_filter([
+            'Producto' => trim((string) $request->input('nombre')) ?: null,
+            'Contó' => trim((string) $request->input('usuario')) ?: null,
+            'Desde' => $request->date('desde')?->format('d/m/Y'),
+            'Hasta' => $request->date('hasta')?->format('d/m/Y'),
+            'Horario de creación' => $this->scheduleLabel($request),
+            'Mostrando' => $request->boolean('solo_diferencias') ? 'sólo productos con diferencia' : null,
+        ]);
+    }
+
+    private function scheduleLabel(Request $request): ?string
+    {
+        $from = $this->timeBound($request->input('hora_desde'), false);
+        $to = $this->timeBound($request->input('hora_hasta'), true);
+        if (! $from && ! $to) {
+            return null;
+        }
+        $short = fn (?string $time) => $time ? substr($time, 0, 5) : null;
+
+        return match (true) {
+            $from && $to => $short($from).' a '.$short($to),
+            (bool) $from => 'desde las '.$short($from),
+            default => 'hasta las '.$short($to),
+        };
+    }
+
+    /** 'HH:MM' del formulario a 'HH:MM:SS'; el límite superior incluye el minuto entero. */
+    private function timeBound($value, bool $end): ?string
+    {
+        $value = trim((string) $value);
+        if ($value === '' || ! preg_match('/^(\d{1,2}):(\d{2})/', $value, $parts)) {
+            return null;
+        }
+
+        return sprintf('%02d:%02d:%02d', min((int) $parts[1], 23), min((int) $parts[2], 59), $end ? 59 : 0);
     }
 
     private function authorizeAction(Request $request, string $permission): void

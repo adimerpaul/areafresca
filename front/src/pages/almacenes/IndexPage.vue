@@ -2,7 +2,10 @@
   <q-page class="q-pa-sm">
     <div class="row items-center q-mb-sm">
       <div><div class="text-subtitle1 text-weight-bold">Almacenes</div><div class="text-caption text-grey-7">Revisiones del stock físico de la tienda</div></div>
-      <q-space/><q-btn v-if="can('Crear Almacenes')" dense unelevated color="primary" icon="add" label="Nueva revisión" no-caps @click="openCreate"/>
+      <q-space/>
+      <ExportarExcel endpoint="/almacenes-exportar/excel" filename="almacenes" label="Exportar Excel"
+                     subtitulo="Listado de revisiones de almacén" :preset="exportPreset" class="q-mr-xs"/>
+      <q-btn v-if="can('Crear Almacenes')" dense unelevated color="primary" icon="add" label="Nueva revisión" no-caps @click="openCreate"/>
     </div>
 
     <div class="kpi-row q-mb-sm">
@@ -50,8 +53,9 @@
 </template>
 
 <script setup>
-import { getCurrentInstance, onMounted, reactive, ref } from 'vue'
+import { computed, getCurrentInstance, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import ExportarExcel from '../../components/ExportarExcel.vue'
 const {proxy}=getCurrentInstance(),router=useRouter()
 const rows=ref([]),loading=ref(false),createDialog=ref(false),creating=ref(false)
 const summary=reactive({en_revision:0,aplicados:0,productos_revisados:0,diferencia_valor:0})
@@ -73,6 +77,8 @@ const columns=[
 ]
 const params=()=>({q:filters.q||'',desde:filters.desde||'',hasta:filters.hasta||'',estado:filters.estado||'',
   page:pagination.value.page,per_page:pagination.value.rowsPerPage})
+// El diálogo de exportación arranca con lo que ya se está viendo en pantalla.
+const exportPreset=computed(()=>({nombre:filters.q||'',estado:filters.estado||null,desde:filters.desde||'',hasta:filters.hasta||''}))
 
 async function load(){
   loading.value=true

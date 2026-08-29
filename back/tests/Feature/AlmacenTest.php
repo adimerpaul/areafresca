@@ -213,4 +213,35 @@ class AlmacenTest extends TestCase
             ->assertJsonPath('total_productos', Producto::count())
             ->assertJsonPath('detalles.0.diferencia_actual', -2);
     }
+
+    public function test_excel_export_filters_by_product_name_and_creation_time(): void
+    {
+        $this->admin();
+        [$counted, $other] = Producto::take(2)->get()->all();
+        $almacen = $this->draft();
+
+        $this->postJson("/api/almacenes/{$almacen['id']}/detalles", ['producto_id' => $counted->id, 'cantidad' => 3])->assertCreated();
+        $this->postJson("/api/almacenes/{$almacen['id']}/detalles", ['producto_id' => $other->id, 'cantidad' => 5])->assertCreated();
+
+        // Sin filtros salen las dos lineas; filtrando por nombre queda una sola.
+        $this->assertSame(2, $this->getJson("/api/almacenes/{$almacen['id']}/avance")->assertOk()->json('revisados'));
+        $this->assertSame(1, $this->getJson("/api/almacenes/{$almacen['id']}/avance?nombre={$counted->nombre}")->assertOk()->json('revisados'));
+
+        // Un horario en el que no se cargo nada deja el reporte vacio.
+        $fuera = now()->addHours(2)->format('H:i');
+        $this->assertSame(0, $this->getJson("/api/almacenes/{$almacen['id']}/avance?hora_desde={$fuera}&hora_hasta={$fuera}")->assertOk()->json('revisados'));
+
+        $response = $this->get("/api/almacenes/{$almacen['id']}/exportar/excel?nombre={$counted->nombre}");
+        $response->assertOk();
+        $this->assertStringContainsString('.xlsx', $response->headers->get('content-disposition'));
+
+        $this->get('/api/almacenes-exportar/excel?q=PRUEBA&hora_desde=00:00&hora_hasta=23:59')->assertOk();
+    }
+
+    public function test_excel_export_requires_the_view_permission(): void
+    {
+        Sanctum::actingAs(User::create(['name' => 'JUAN', 'username' => 'juan', 'password' => bcrypt('123456')]));
+
+        $this->getJson('/api/almacenes-exportar/excel')->assertForbidden();
+    }
 }

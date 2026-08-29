@@ -11,6 +11,9 @@
         </div>
       </div>
       <q-space/>
+      <ExportarExcel :endpoint="`/almacenes/${id}/exportar/excel`" :filename="`avance-${almacen.numero||id}`"
+                     mode="revision" label="Excel" subtitulo="Detalle, lotes y avance por usuario"
+                     :preset="{solo_diferencias:onlyDifferences}" class="q-mr-xs"/>
       <q-btn v-if="editable" dense flat icon="fact_check" label="Seguir llenando" no-caps class="q-mr-xs" :to="`/almacenes/${id}`"/>
       <q-btn dense flat round icon="refresh" :loading="loading" class="q-mr-xs" @click="load()"><q-tooltip>Actualizar</q-tooltip></q-btn>
       <q-btn v-if="editable&&can('Aplicar Almacenes')" dense unelevated color="positive" icon="published_with_changes" label="Actualizar productos" no-caps :loading="applying" :disable="!data.revisados" @click="apply"/>
@@ -133,6 +136,7 @@
 <script setup>
 import { computed, getCurrentInstance, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import ExportarExcel from '../../components/ExportarExcel.vue'
 const {proxy}=getCurrentInstance(),route=useRoute(),router=useRouter()
 const id=Number(route.params.id)
 const almacen=reactive({numero:'',estado:'BORRADOR',descripcion:'',aplicado_por_nombre:null,fecha_aplicado:null})

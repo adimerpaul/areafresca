@@ -85,10 +85,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/almacenes', [AlmacenController::class, 'index']);
     Route::get('/almacenes-resumen', [AlmacenController::class, 'summary']);
+    Route::get('/almacenes-exportar/excel', [AlmacenController::class, 'exportExcel']);
     Route::post('/almacenes', [AlmacenController::class, 'store']);
     Route::get('/almacenes/{almacen}', [AlmacenController::class, 'show']);
     Route::put('/almacenes/{almacen}', [AlmacenController::class, 'update']);
     Route::get('/almacenes/{almacen}/avance', [AlmacenController::class, 'progress']);
+    Route::get('/almacenes/{almacen}/exportar/excel', [AlmacenController::class, 'exportRevision']);
     Route::post('/almacenes/{almacen}/detalles', [AlmacenController::class, 'storeDetalle']);
     Route::put('/almacenes/{almacen}/detalles/{detalle}', [AlmacenController::class, 'updateDetalle']);
     Route::delete('/almacenes/{almacen}/detalles/{detalle}', [AlmacenController::class, 'destroyDetalle']);

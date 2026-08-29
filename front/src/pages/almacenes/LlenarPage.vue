@@ -8,6 +8,8 @@
         <div class="text-caption text-grey-7">{{header.descripcion||'Cuenta el stock físico de la tienda'}} · {{items.length}} productos revisados</div>
       </div>
       <q-space/>
+      <ExportarExcel :endpoint="`/almacenes/${id}/exportar/excel`" :filename="`revision-${header.numero||id}`"
+                     mode="revision" label="Excel" subtitulo="Detalle, lotes y avance por usuario" class="q-mr-xs"/>
       <q-btn dense flat icon="insights" label="Avance" no-caps class="q-mr-xs" :to="`/almacenes/${id}/avance`"/>
       <q-btn dense flat icon="warehouse" label="Almacenes" no-caps to="/almacenes"/>
     </div>
@@ -131,6 +133,7 @@
 <script setup>
 import { computed, getCurrentInstance, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import ExportarExcel from '../../components/ExportarExcel.vue'
 const {proxy}=getCurrentInstance(),route=useRoute(),router=useRouter()
 const id=Number(route.params.id)
 const header=reactive({numero:'',estado:'BORRADOR',descripcion:'',observacion:''})
