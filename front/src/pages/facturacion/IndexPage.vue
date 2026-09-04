@@ -6,10 +6,10 @@
     </div>
 
     <div class="kpi-row q-mb-sm">
-      <q-card flat bordered class="kpi-card"><q-card-section class="q-pa-sm row items-center"><q-avatar icon="receipt_long" color="blue-1" text-color="primary" size="38px"/><div class="q-ml-sm"><div class="text-caption text-grey-7">Facturas del mes</div><div class="text-h6 text-weight-bold">{{summary.cantidad}}</div></div></q-card-section></q-card>
+      <q-card flat bordered class="kpi-card"><q-card-section class="q-pa-sm row items-center"><q-avatar icon="receipt_long" color="blue-1" text-color="primary" size="38px"/><div class="q-ml-sm"><div class="text-caption text-grey-7">Facturas del mes</div><div class="text-h6 text-weight-bold">{{summary.cantidad}}</div><div class="text-caption text-grey-6">{{summary.anuladas}} anuladas</div></div></q-card-section></q-card>
       <q-card flat bordered class="kpi-card"><q-card-section class="q-pa-sm row items-center"><q-avatar icon="payments" color="green-1" text-color="positive" size="38px"/><div class="q-ml-sm"><div class="text-caption text-grey-7">Importe válido</div><div class="text-h6 text-weight-bold">Bs {{money(summary.importe_total)}}</div></div></q-card-section></q-card>
-      <q-card flat bordered class="kpi-card"><q-card-section class="q-pa-sm row items-center"><q-avatar icon="account_balance" color="deep-purple-1" text-color="deep-purple" size="38px"/><div class="q-ml-sm"><div class="text-caption text-grey-7">Débito fiscal</div><div class="text-h6 text-weight-bold">Bs {{money(summary.debito_fiscal)}}</div></div></q-card-section></q-card>
-      <q-card flat bordered class="kpi-card"><q-card-section class="q-pa-sm row items-center"><q-avatar icon="block" color="red-1" text-color="negative" size="38px"/><div class="q-ml-sm"><div class="text-caption text-grey-7">Anuladas</div><div class="text-h6 text-weight-bold">{{summary.anuladas}}</div></div></q-card-section></q-card>
+      <q-card flat bordered class="kpi-card"><q-card-section class="q-pa-sm row items-center"><q-avatar icon="check_circle" color="green-1" text-color="positive" size="38px"/><div class="q-ml-sm"><div class="text-caption text-grey-7">En el sistema</div><div class="text-h6 text-weight-bold">{{summary.en_sistema}}</div><div class="text-caption text-grey-6">Débito fiscal Bs {{money(summary.debito_fiscal)}}</div></div></q-card-section></q-card>
+      <q-card flat bordered class="kpi-card kpi-missing" @click="showMissing"><q-card-section class="q-pa-sm row items-center"><q-avatar icon="report_problem" color="red-1" text-color="negative" size="38px"/><div class="q-ml-sm"><div class="text-caption text-grey-7">Sin registrar</div><div class="text-h6 text-weight-bold text-negative">{{summary.sin_registrar}}</div><div class="text-caption text-grey-6">Bs {{money(summary.importe_sin_registrar)}} por recuperar</div></div></q-card-section><q-tooltip>Facturas que están en Impuestos pero no en el sistema. Clic para verlas.</q-tooltip></q-card>
     </div>
 
     <q-card flat bordered>
@@ -17,6 +17,7 @@
         <q-input v-model="filters.q" dense outlined clearable debounce="400" class="col-12 col-sm" placeholder="Buscar factura, CUF, NIT o razón social" @update:model-value="reload"><template #prepend><q-icon name="search"/></template></q-input>
         <q-input v-model="filters.mes" dense outlined type="month" label="Mes" stack-label class="col-6 col-sm-2" @update:model-value="reload"/>
         <q-select v-model="filters.estado" :options="['VALIDA','ANULADA']" dense outlined clearable label="Estado" class="col-6 col-sm-2" @update:model-value="reload"/>
+        <q-select v-model="filters.en_sistema" :options="[{label:'En el sistema',value:'si'},{label:'Sin registrar',value:'no'}]" emit-value map-options dense outlined clearable label="Registro" class="col-6 col-sm-2" @update:model-value="reload"/>
         <div class="col-12 col-sm-auto row q-gutter-xs">
           <q-btn dense flat no-caps color="primary" label="Mes anterior" @click="setMonth(-1)"/>
           <q-btn dense flat no-caps color="primary" label="Mes actual" @click="setMonth(0)"/>
@@ -29,6 +30,10 @@
         <template #body-cell-total="p"><q-td :props="p" class="text-right text-weight-bold">Bs {{money(p.row.importe_total)}}</q-td></template>
         <template #body-cell-debito="p"><q-td :props="p" class="text-right">Bs {{money(p.row.debito_fiscal)}}</q-td></template>
         <template #body-cell-estado="p"><q-td :props="p"><q-badge :color="p.row.estado==='VALIDA'?'positive':'grey-6'" :label="p.row.estado"/></q-td></template>
+        <template #body-cell-en_sistema="p"><q-td :props="p">
+          <q-badge v-if="p.row.venta" color="positive" :label="p.row.venta.numero"><q-tooltip>Registrada como venta {{p.row.venta.numero}} · {{p.row.venta.estado}}</q-tooltip></q-badge>
+          <q-badge v-else color="negative" label="Sin registrar"><q-tooltip>El CUF está en Impuestos pero no existe ninguna venta con ese código</q-tooltip></q-badge>
+        </q-td></template>
         <template #body-cell-actions="p"><q-td :props="p">
           <q-btn dense flat round color="primary" icon="visibility" @click="openDetail(p.row)"><q-tooltip>Ver detalle</q-tooltip></q-btn>
           <q-btn v-if="can('Eliminar Facturación')" dense flat round color="negative" icon="delete" @click="remove(p.row)"><q-tooltip>Eliminar registro</q-tooltip></q-btn>
@@ -59,6 +64,7 @@
           <div class="text-body2 q-mb-sm" style="word-break:break-all">{{detail.cuf}}</div>
           <q-markup-table flat bordered dense>
             <tbody>
+              <tr><td>En el sistema</td><td class="text-right"><q-badge v-if="detail.venta" color="positive" :label="`Venta ${detail.venta.numero}`"/><q-badge v-else color="negative" label="Sin registrar"/></td></tr>
               <tr><td>NIT / CI</td><td class="text-right">{{detail.nit_ci_cliente}}<span v-if="detail.complemento">-{{detail.complemento}}</span></td></tr>
               <tr><td>Importe total</td><td class="text-right text-weight-bold">Bs {{money(detail.importe_total)}}</td></tr>
               <tr><td>Subtotal</td><td class="text-right">Bs {{money(detail.subtotal)}}</td></tr>
@@ -83,10 +89,10 @@ import { getCurrentInstance, onMounted, reactive, ref } from 'vue'
 const {proxy}=getCurrentInstance()
 const rows=ref([]),loading=ref(false),importDialog=ref(false),detailDialog=ref(false),importing=ref(false),file=ref(null),result=ref(null)
 const detail=reactive({})
-const summary=reactive({cantidad:0,validas:0,anuladas:0,importe_total:0,debito_fiscal:0,meses:[]})
+const summary=reactive({cantidad:0,validas:0,anuladas:0,importe_total:0,debito_fiscal:0,en_sistema:0,sin_registrar:0,importe_sin_registrar:0,meses:[]})
 // El SIAT publica el libro del mes ya cerrado: en septiembre lo que interesa es agosto.
 const monthOf=offset=>{const d=new Date();d.setDate(1);d.setMonth(d.getMonth()+offset-1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`}
-const filters=reactive({q:'',mes:monthOf(0),estado:null})
+const filters=reactive({q:'',mes:monthOf(0),estado:null,en_sistema:null})
 const pagination=ref({page:1,rowsPerPage:20,rowsNumber:0})
 const can=p=>proxy.$store.hasPermission(p),money=v=>Number(v||0).toFixed(2)
 const formatDate=value=>value?new Date(String(value).slice(0,10)+'T00:00:00').toLocaleDateString('es-BO'):''
@@ -100,9 +106,10 @@ const columns=[
   {name:'razon_social',label:'Razón social',field:'razon_social',align:'left'},
   {name:'total',label:'Importe',field:'importe_total',align:'right'},
   {name:'debito',label:'Débito fiscal',field:'debito_fiscal',align:'right'},
-  {name:'estado',label:'Estado',field:'estado',align:'center'}
+  {name:'estado',label:'Estado',field:'estado',align:'center'},
+  {name:'en_sistema',label:'En el sistema',field:'venta',align:'center'}
 ]
-const params=()=>({q:filters.q||'',mes:filters.mes||'',estado:filters.estado||'',page:pagination.value.page,per_page:pagination.value.rowsPerPage})
+const params=()=>({q:filters.q||'',mes:filters.mes||'',estado:filters.estado||'',en_sistema:filters.en_sistema||'',page:pagination.value.page,per_page:pagination.value.rowsPerPage})
 
 async function load(){
   loading.value=true
@@ -115,6 +122,7 @@ async function load(){
 }
 function reload(){pagination.value.page=1;load()}
 function setMonth(offset){filters.mes=monthOf(offset);reload()}
+function showMissing(){filters.en_sistema='no';reload()}
 function onRequest(request){pagination.value.page=request.pagination.page;pagination.value.rowsPerPage=request.pagination.rowsPerPage;load()}
 async function openDetail(row){
   try{Object.assign(detail,(await proxy.$axios.get(`/facturacion/${row.id}`)).data);detailDialog.value=true}
@@ -144,6 +152,7 @@ onMounted(load)
 
 <style scoped>
 .kpi-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.kpi-card{border-radius:10px}
+.kpi-missing{cursor:pointer}
 .cuf-cell{display:inline-block;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 @media(max-width:900px){.kpi-row{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>

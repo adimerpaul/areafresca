@@ -42,4 +42,13 @@ class Facturacion extends Model implements AuditableContract
     {
         return $this->belongsTo(User::class, 'user_id');
     }
+
+    /**
+     * La venta que emitió esta factura, buscada por CUF. Sin venta, la factura está en
+     * Impuestos pero nunca se registró en el sistema y hay que recuperarla.
+     */
+    public function venta()
+    {
+        return $this->hasOne(Venta::class, 'cuf', 'cuf');
+    }
 }

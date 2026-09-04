@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Facturacion;
 use App\Models\User;
+use App\Models\Venta;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Testing\TestResponse;
@@ -138,6 +139,39 @@ class FacturacionTest extends TestCase
             ->assertJsonPath('mes', $previous->format('Y-m'))
             ->assertJsonPath('cantidad', 1);
         $this->assertEquals(100, $resumen->json('importe_total'));
+    }
+
+    public function test_it_flags_the_invoices_that_never_reached_the_system(): void
+    {
+        $this->admin();
+        // Una de las dos facturas del libro sí se emitió desde el sistema.
+        Venta::create([
+            'numero' => 'V-00009384', 'usuario_nombre' => 'admin', 'subtotal' => 52.55, 'total' => 52.55,
+            'estado' => 'COMPLETADA', 'fecha' => '2026-08-31 10:00:00', 'tipo_comprobante' => 'FACTURA',
+            'estado_siat' => 'VALIDADA', 'cuf' => 'CUF-1',
+        ]);
+
+        $this->upload($this->xlsx([
+            $this->row('CUF-1', '31/08/2026', '9384', 52.55),
+            $this->row('CUF-2', '30/08/2026', '9382', 68.33),
+        ]), 'archivoVentas.xlsx')->assertOk();
+
+        $listing = $this->getJson('/api/facturacion?mes=2026-08')->assertOk();
+        $this->assertSame('V-00009384', $listing->json('data.0.venta.numero'));
+        $this->assertNull($listing->json('data.1.venta'));
+
+        $this->getJson('/api/facturacion?mes=2026-08&en_sistema=no')->assertOk()
+            ->assertJsonPath('total', 1)->assertJsonPath('data.0.cuf', 'CUF-2');
+
+        $this->getJson('/api/facturacion?mes=2026-08&en_sistema=si')->assertOk()
+            ->assertJsonPath('total', 1)->assertJsonPath('data.0.cuf', 'CUF-1');
+
+        // El resumen ignora el filtro de registro para no contarse contra sí mismo.
+        $resumen = $this->getJson('/api/facturacion-resumen?mes=2026-08&en_sistema=no')->assertOk()
+            ->assertJsonPath('cantidad', 2)
+            ->assertJsonPath('en_sistema', 1)
+            ->assertJsonPath('sin_registrar', 1);
+        $this->assertEquals(68.33, $resumen->json('importe_sin_registrar'));
     }
 
     public function test_importing_requires_its_own_permission(): void
