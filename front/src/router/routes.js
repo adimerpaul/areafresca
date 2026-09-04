@@ -12,6 +12,7 @@ const routes = [
       { path: 'productos', component: () => import('pages/productos/IndexPage.vue') },
       { path: 'ventas', component: () => import('pages/ventas/IndexPage.vue') },
       { path: 'ventas/nueva', component: () => import('pages/ventas/NuevaPage.vue') },
+      { path: 'facturacion', component: () => import('pages/facturacion/IndexPage.vue') },
       { path: 'compras', component: () => import('pages/compras/IndexPage.vue') },
       { path: 'compras/nueva', component: () => import('pages/compras/NuevaPage.vue') },
       { path: 'proveedores', component: () => import('pages/proveedores/IndexPage.vue') },

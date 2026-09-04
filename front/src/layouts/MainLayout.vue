@@ -133,6 +133,7 @@ const links = [
   { title: 'Productos', icon: 'inventory_2', link: '/productos', can: 'Ver Productos' },
   { title: 'Nueva venta', icon: 'point_of_sale', link: '/ventas/nueva', can: 'Crear Ventas' },
   { title: 'Ventas', icon: 'receipt_long', link: '/ventas', can: 'Ver Ventas' },
+  { title: 'Facturación', icon: 'request_quote', link: '/facturacion', can: 'Ver Facturación' },
   { title: 'Nueva compra', icon: 'add_business', link: '/compras/nueva', can: 'Crear Compras' },
   { title: 'Compras', icon: 'shopping_bag', link: '/compras', can: 'Ver Compras' },
   { title: 'Proveedores', icon: 'groups', link: '/proveedores', can: 'Ver Compras' },

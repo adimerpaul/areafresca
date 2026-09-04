@@ -7,6 +7,7 @@ use App\Http\Controllers\ClienteController;
 use App\Http\Controllers\CompraController;
 use App\Http\Controllers\ConfiguracionController;
 use App\Http\Controllers\CorreoPruebaController;
+use App\Http\Controllers\FacturacionController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\SiatEventoSignificativoController;
 use App\Http\Controllers\SiatTokenController;
@@ -63,6 +64,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/ventas/{venta}/anular', [VentaController::class, 'cancel']);
     Route::put('/ventas/{venta}/convertir-recibo', [VentaController::class, 'convertToReceipt']);
     Route::put('/ventas/{venta}/corregir-factura', [VentaController::class, 'fixAndResend']);
+
+    Route::get('/facturacion', [FacturacionController::class, 'index']);
+    Route::get('/facturacion-resumen', [FacturacionController::class, 'summary']);
+    Route::post('/facturacion/importar', [FacturacionController::class, 'import']);
+    Route::get('/facturacion/{facturacion}', [FacturacionController::class, 'show']);
+    Route::delete('/facturacion/{facturacion}', [FacturacionController::class, 'destroy']);
 
     Route::get('/compras', [CompraController::class, 'index']);
     Route::get('/compras-resumen', [CompraController::class, 'summary']);
