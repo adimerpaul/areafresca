@@ -54,6 +54,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/clientes/buscar', [ClienteController::class, 'search']);
     Route::post('/ventas', [VentaController::class, 'store']);
     Route::get('/ventas-resumen', [VentaController::class, 'summary']);
+    Route::get('/ventas-reemitibles', [VentaController::class, 'reissuable']);
+    Route::post('/ventas-reemitir', [VentaController::class, 'reissueBatch']);
     Route::get('/dashboard', [VentaController::class, 'dashboard']);
     Route::get('/ventas-exportar/excel', [VentaController::class, 'exportExcel']);
     Route::get('/ventas-exportar/pdf', [VentaController::class, 'exportPdf']);
@@ -64,6 +66,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/ventas/{venta}/anular', [VentaController::class, 'cancel']);
     Route::put('/ventas/{venta}/convertir-recibo', [VentaController::class, 'convertToReceipt']);
     Route::put('/ventas/{venta}/corregir-factura', [VentaController::class, 'fixAndResend']);
+    Route::put('/ventas/{venta}/reemitir-factura', [VentaController::class, 'reissue']);
 
     Route::get('/facturacion', [FacturacionController::class, 'index']);
     Route::get('/facturacion-resumen', [FacturacionController::class, 'summary']);

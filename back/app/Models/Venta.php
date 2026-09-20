@@ -18,13 +18,14 @@ class Venta extends Model implements AuditableContract
         'complemento', 'cliente_nombre', 'cliente_email', 'tipo_comprobante',
         'estado_siat', 'online', 'cuf', 'cufd', 'codigo_recepcion', 'xml_path',
         'siat_mensaje', 'fecha_emision_siat', 'pdf_path', 'email_enviado_en', 'email_error',
+        'reemitida_en', 'reemitida_por',
     ];
 
     protected $casts = [
         'subtotal' => 'decimal:2', 'descuento' => 'decimal:2',
         'total' => 'decimal:2', 'monto_efectivo' => 'decimal:2',
         'monto_qr' => 'decimal:2', 'fecha' => 'datetime', 'fecha_emision_siat' => 'datetime',
-        'email_enviado_en' => 'datetime',
+        'email_enviado_en' => 'datetime', 'reemitida_en' => 'datetime',
         'online' => 'boolean',
     ];
 

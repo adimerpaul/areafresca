@@ -19,6 +19,12 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class VentaController extends Controller
 {
+    /** Tope de ventas que devuelve la lista de reemision pendiente. */
+    private const REISSUE_MAX = 500;
+
+    /** Ventas por peticion al reemitir en tanda: acota cuanto dura cada llamada. */
+    private const REISSUE_BATCH = 10;
+
     public function index(Request $request)
     {
         $this->authorizeAction($request, 'Ver Ventas');
@@ -52,6 +58,10 @@ class VentaController extends Controller
             // Facturas con CUF cuyo envío falló y no quedó programado para reenviarse.
             'facturas_envio_invalido' => (clone $query)
                 ->where('tipo_comprobante', 'FACTURA')->whereIn('estado_siat', ElectronicInvoiceService::FAILED_SEND_STATES)->count(),
+            // Recibos con documento del cliente que se pueden emitir como factura.
+            'recibos_facturables' => $this->onlyReceiptsToInvoice(clone $query)->count(),
+            // Facturas que el SIN nunca aceptó y se pueden volver a emitir desde cero.
+            'facturas_reemitibles' => $this->onlyReissuable(clone $query)->count(),
             'usuarios' => User::orderBy('username')->get(['id', 'name', 'username']),
         ]);
     }
@@ -369,6 +379,12 @@ class VentaController extends Controller
         } elseif ($request->input('envio') === 'rechazadas') {
             $query->where('tipo_comprobante', 'FACTURA')->where('estado_siat', 'OBSERVADA')
                 ->where('estado', 'COMPLETADA');
+        } elseif ($request->input('envio') === 'recibos_facturables') {
+            // Mismo criterio que el contador de 'recibos_facturables' del resumen.
+            $this->onlyReceiptsToInvoice($query);
+        } elseif ($request->input('envio') === 'reemitir') {
+            // Mismo criterio que el contador de 'facturas_reemitibles' del resumen.
+            $this->onlyReissuable($query);
         } elseif ($request->input('envio') === 'envio_invalido') {
             // Mismo criterio que el contador de "facturas_envio_invalido" del resumen.
             $query->where('tipo_comprobante', 'FACTURA')->whereIn('estado_siat', ElectronicInvoiceService::FAILED_SEND_STATES)
@@ -546,6 +562,200 @@ class VentaController extends Controller
                 ? "Factura {$venta->numero} emitida correctamente con el documento corregido"
                 : 'Impuestos volvió a rechazarla: '.($venta->siat_mensaje ?: 'sin detalle'),
         ]);
+    }
+
+    /**
+     * Ventas cobradas como factura que Impuestos nunca aceptó: o no llegaron a
+     * generar CUF o el envío en línea falló. En ambos casos el número de factura
+     * sigue libre en el SIN, así que se pueden volver a emitir desde cero.
+     *
+     * Las rechazadas (OBSERVADA) quedan fuera a propósito: ésas necesitan que
+     * alguien corrija el documento del cliente con fixAndResend().
+     */
+    private function reissuableQuery(Request $request)
+    {
+        return $this->onlyReissuable($this->filteredQuery($request));
+    }
+
+    /**
+     * La factura sale con la fecha de hoy, así que sólo se emiten ventas del mes
+     * en curso: una venta de agosto facturada en septiembre caería en el periodo
+     * fiscal equivocado.
+     */
+    private function onlyThisMonth($query)
+    {
+        return $query->whereBetween('fecha', [now()->startOfMonth(), now()->endOfMonth()]);
+    }
+
+    /**
+     * Recibos que se pueden convertir en factura: los que conservan documento y
+     * nombre del cliente. Los recibos normales (documento '0') quedan fuera, no
+     * hay a quién facturarlos.
+     */
+    private function onlyReceiptsToInvoice($query)
+    {
+        return $this->onlyThisMonth($query)->where('tipo_comprobante', 'RECIBO')
+            ->where('estado', 'COMPLETADA')
+            ->whereNotNull('numero_documento')->where('numero_documento', '<>', '0')
+            ->whereNotNull('cliente_nombre')->where('cliente_nombre', '<>', '');
+    }
+
+    /** Condiciones compartidas por el filtro 'reemitir', su contador y su lista. */
+    private function onlyReissuable($query)
+    {
+        return $this->onlyThisMonth($query)->where('tipo_comprobante', 'FACTURA')
+            ->where('estado', 'COMPLETADA')
+            ->where('online', false)
+            ->where(fn ($q) => $q->whereNull('cuf')->orWhereIn('estado_siat', ElectronicInvoiceService::FAILED_SEND_STATES))
+            ->where(fn ($q) => $q->whereNull('estado_siat')
+                ->orWhereNotIn('estado_siat', ['VALIDADA', 'ANULADA', 'OBSERVADA']));
+    }
+
+    /**
+     * Lista las ventas que los botones de emisión masiva van a procesar, con los
+     * mismos filtros de la pantalla: facturas fallidas por defecto, o recibos con
+     * documento del cliente con ?tipo=recibos. El frontend las manda luego en
+     * tandas para no tener una sola petición SOAP eterna.
+     */
+    public function reissuable(Request $request)
+    {
+        $this->authorizeAction($request, 'Reemitir Factura');
+        $build = $request->input('tipo') === 'recibos'
+            ? fn () => $this->onlyReceiptsToInvoice($this->filteredQuery($request))
+            : fn () => $this->reissuableQuery($request);
+        $ventas = $build()->orderBy('fecha')
+            ->limit(self::REISSUE_MAX)->get(['id', 'numero', 'total', 'fecha', 'cliente_nombre', 'siat_mensaje']);
+
+        return response()->json([
+            'total' => $build()->count(),
+            'limite' => self::REISSUE_MAX,
+            'tanda' => self::REISSUE_BATCH,
+            'ventas' => $ventas,
+        ]);
+    }
+
+    public function reissue(Request $request, Venta $venta, ElectronicInvoiceService $invoices, SiatService $siat)
+    {
+        $this->authorizeAction($request, 'Reemitir Factura');
+        try {
+            $result = $this->reissueSale($venta, $invoices, $siat, $request->user()?->id, $request->user()?->username);
+        } catch (\RuntimeException $exception) {
+            abort(422, $exception->getMessage());
+        }
+
+        return response()->json($result + ['venta' => $venta->fresh()->load(['detalles', 'cliente'])]);
+    }
+
+    /** Reintenta en tanda: cada venta se resuelve sola y el fallo de una no corta el resto. */
+    public function reissueBatch(Request $request, ElectronicInvoiceService $invoices, SiatService $siat)
+    {
+        $this->authorizeAction($request, 'Reemitir Factura');
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1', 'max:'.self::REISSUE_BATCH],
+            'ids.*' => ['integer'],
+        ]);
+
+        $results = [];
+        foreach (Venta::whereIn('id', $data['ids'])->orderBy('fecha')->get() as $venta) {
+            try {
+                $results[] = ['id' => $venta->id, 'numero' => $venta->numero]
+                    + $this->reissueSale($venta, $invoices, $siat, $request->user()?->id, $request->user()?->username);
+            } catch (\Throwable $exception) {
+                $results[] = ['id' => $venta->id, 'numero' => $venta->numero, 'emitida' => false, 'mensaje' => $exception->getMessage()];
+            }
+        }
+
+        return response()->json([
+            'emitidas' => collect($results)->where('emitida', true)->count(),
+            'fallidas' => collect($results)->where('emitida', false)->count(),
+            'resultados' => $results,
+        ]);
+    }
+
+    /**
+     * Vuelve a emitir una venta como factura. Como el SIN nunca la aceptó, el
+     * número (que es el id de la venta) sigue libre y se reutiliza: issue()
+     * genera CUF, XML firmado y envío nuevos, con la fecha de hoy.
+     *
+     * `fecha` (el día en que se cobró) no se toca nunca. La fecha que viaja al SIN
+     * es `fecha_emision_siat`, y `reemitida_en`/`reemitida_por` dejan el rastro de
+     * quién la facturó después. Por eso sólo se admiten ventas del mes en curso:
+     * de lo contrario la factura caería en otro periodo fiscal.
+     *
+     * Si la venta ya tenía CUF primero se consulta al SIN: pudo haber recibido
+     * la factura aunque la respuesta nunca llegara, y reemitirla la duplicaría.
+     */
+    private function reissueSale(Venta $venta, ElectronicInvoiceService $invoices, SiatService $siat, ?int $userId, ?string $userName = null): array
+    {
+        if ($venta->estado !== 'COMPLETADA') {
+            throw new \RuntimeException("La venta {$venta->numero} está anulada: no se puede emitir su factura");
+        }
+        if ($venta->estado_siat === 'VALIDADA' || $venta->online) {
+            throw new \RuntimeException("Impuestos ya aceptó la factura {$venta->numero}");
+        }
+        if ($venta->estado_siat === 'ANULADA') {
+            throw new \RuntimeException("La factura {$venta->numero} está anulada en Impuestos");
+        }
+        if ($venta->estado_siat === 'OBSERVADA') {
+            throw new \RuntimeException("Impuestos rechazó la factura {$venta->numero}: corrija el documento del cliente y reenvíela");
+        }
+        if ($venta->fecha->format('Y-m') !== now()->format('Y-m')) {
+            throw new \RuntimeException("La venta {$venta->numero} es del ".$venta->fecha->format('m/Y').' y la factura saldría con la fecha de hoy: quedaría en otro periodo fiscal');
+        }
+        if ($venta->tipo_comprobante !== 'FACTURA') {
+            // Devolver un recibo a factura es la operación inversa de convertToReceipt.
+            $document = trim((string) $venta->numero_documento);
+            if ($document === '' || $document === '0' || ! $venta->cliente_nombre) {
+                throw new \RuntimeException("El recibo {$venta->numero} no tiene documento ni nombre de cliente: no se puede convertir en factura");
+            }
+        }
+
+        // Tenía CUF: el XML llegó a firmarse, así que el SIN pudo haberlo recibido.
+        if ($venta->cuf) {
+            $siat->verifyInvoice($venta);
+            $venta->refresh();
+            if ($venta->estado_siat === 'VALIDADA') {
+                return ['emitida' => true, 'mensaje' => "Impuestos ya tenía la factura {$venta->numero}: se actualizó su estado a VALIDADA"];
+            }
+        }
+
+        $previous = ['tipo_comprobante' => $venta->tipo_comprobante, 'estado_siat' => $venta->estado_siat, 'cuf' => $venta->cuf];
+
+        // El intento fallido se conserva aparte: issue() reescribe el XML del mismo id.
+        if ($venta->xml_path && Storage::disk('local')->exists($venta->xml_path)) {
+            Storage::disk('local')->copy($venta->xml_path, "impuestos/facturas/reemitidas/{$venta->id}-".now()->format('YmdHis').'.xml');
+        }
+
+        $venta->update([
+            'tipo_comprobante' => 'FACTURA',
+            'cuf' => null,
+            'cufd' => null,
+            'codigo_recepcion' => null,
+            'xml_path' => null,
+            'pdf_path' => null,
+            'fecha_emision_siat' => null,
+            'estado_siat' => null,
+            'siat_mensaje' => null,
+            'online' => false,
+            // La fecha de la venta no se toca: esto sólo deja rastro de la reemisión.
+            'reemitida_en' => now(),
+            'reemitida_por' => $userName,
+        ]);
+
+        error_log('[VENTA][REEMISION] Reintentando emisión de factura: '.json_encode([
+            'venta_id' => $venta->id, 'numero' => $venta->numero,
+            'anterior' => $previous, 'usuario_id' => $userId,
+        ], JSON_UNESCAPED_UNICODE));
+
+        $venta = $invoices->issue($venta->fresh()->loadMissing('detalles'));
+        $accepted = $venta->estado_siat === 'VALIDADA';
+
+        return [
+            'emitida' => $accepted,
+            'mensaje' => $accepted
+                ? "Factura {$venta->numero} emitida correctamente en Impuestos"
+                : "Impuestos no aceptó la factura {$venta->numero}: ".($venta->siat_mensaje ?: 'sin detalle'),
+        ];
     }
 
     /** Devuelve al stock y a los lotes exactamente lo que consumió la venta. */
