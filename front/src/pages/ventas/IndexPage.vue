@@ -107,11 +107,15 @@ function toggleRejected(){sendFilter.value=sendFilter.value==='rechazadas'?null:
 function toggleInvalidSend(){sendFilter.value=sendFilter.value==='envio_invalido'?null:'envio_invalido';load()}
 function toggleReissue(){sendFilter.value=sendFilter.value==='reemitir'?null:'reemitir';load()}
 function toggleReceipts(){sendFilter.value=sendFilter.value==='recibos_facturables'?null:'recibos_facturables';load()}
+// Rechazo del SIN que se arregla solo reemitiendo con CI: el documento no es un NIT del padrón.
+const INVALID_NIT='NUMERO DOCUMENTO DE TIPO NIT NO ES VALIDO'
+const nitRejected=row=>row.estado_siat==='OBSERVADA'&&row.tipo_documento==='NIT'&&(row.siat_mensaje||'').toUpperCase().includes(INVALID_NIT)
 // Factura que Impuestos nunca aceptó: el número sigue libre y se puede emitir de nuevo (mismo criterio que el backend).
-const reissuable=row=>row.tipo_comprobante==='FACTURA'&&row.estado==='COMPLETADA'&&!row.online&&(!row.cuf||FAILED_SEND.includes(row.estado_siat))&&!['VALIDADA','ANULADA','OBSERVADA'].includes(row.estado_siat)
+const reissuable=row=>row.tipo_comprobante==='FACTURA'&&row.estado==='COMPLETADA'&&!row.online&&(nitRejected(row)||((!row.cuf||FAILED_SEND.includes(row.estado_siat))&&!['VALIDADA','ANULADA','OBSERVADA'].includes(row.estado_siat)))
 // Un recibo vuelve a ser factura sólo si conserva el documento y el nombre del cliente.
 const receiptToInvoice=row=>row.tipo_comprobante==='RECIBO'&&row.estado==='COMPLETADA'&&!!row.cliente_nombre&&!!row.numero_documento&&row.numero_documento!=='0'
-function reissue(row){proxy.$alert.dialog(row.tipo_comprobante==='RECIBO'?'Cambiar a FACTURA':'Emitir como FACTURA',`Se emitirá la factura ${row.numero} en Impuestos con la fecha de hoy. La venta sigue siendo del ${formatDate(row.fecha)}: sólo se registra aparte la fecha en que se facturó. El número, el monto y los productos no cambian.`).onOk(()=>proxy.$axios.put(`/ventas/${row.id}/reemitir-factura`).then(({data})=>{data.emitida?proxy.$alert.success(data.mensaje):proxy.$alert.error(data.mensaje);load()}).catch(e=>proxy.$alert.error(e.response?.data?.message||'No se pudo emitir la factura')))}
+function reissue(row){const aviso=nitRejected(row)?` Impuestos rechazó el NIT ${row.numero_documento}, así que se enviará como CI (el número de documento no cambia).`:''
+  proxy.$alert.dialog(row.tipo_comprobante==='RECIBO'?'Cambiar a FACTURA':'Emitir como FACTURA',`Se emitirá la factura ${row.numero} en Impuestos con la fecha de hoy. La venta sigue siendo del ${formatDate(row.fecha)}: sólo se registra aparte la fecha en que se facturó. El número, el monto y los productos no cambian.${aviso}`).onOk(()=>proxy.$axios.put(`/ventas/${row.id}/reemitir-factura`).then(({data})=>{data.emitida?proxy.$alert.success(data.mensaje):proxy.$alert.error(data.mensaje);load()}).catch(e=>proxy.$alert.error(e.response?.data?.message||'No se pudo emitir la factura')))}
 // tipo null = facturas fallidas; 'recibos' = recibos con documento del cliente.
 async function reissueAll(tipo=null){const esRecibo=tipo==='recibos'
   try{const{data}=await proxy.$axios.get('/ventas-reemitibles',{params:{...params(),tipo}});if(!data.total)return proxy.$alert.info(esRecibo?'No hay recibos con documento del cliente en este filtro':'No hay facturas por emitir con este filtro')

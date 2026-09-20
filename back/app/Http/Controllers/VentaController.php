@@ -19,11 +19,14 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class VentaController extends Controller
 {
-    /** Tope de ventas que devuelve la lista de reemision pendiente. */
+    /** Tope de ventas que devuelve la lista de reemisión pendiente. */
     private const REISSUE_MAX = 500;
 
-    /** Ventas por peticion al reemitir en tanda: acota cuanto dura cada llamada. */
+    /** Ventas por petición al reemitir en tanda: acota cuánto dura cada llamada. */
     private const REISSUE_BATCH = 10;
+
+    /** Rechazo del SIN que se arregla solo: el documento no es un NIT del padrón. */
+    private const INVALID_NIT_MESSAGE = 'NUMERO DOCUMENTO DE TIPO NIT NO ES VALIDO';
 
     public function index(Request $request)
     {
@@ -606,9 +609,16 @@ class VentaController extends Controller
         return $this->onlyThisMonth($query)->where('tipo_comprobante', 'FACTURA')
             ->where('estado', 'COMPLETADA')
             ->where('online', false)
-            ->where(fn ($q) => $q->whereNull('cuf')->orWhereIn('estado_siat', ElectronicInvoiceService::FAILED_SEND_STATES))
-            ->where(fn ($q) => $q->whereNull('estado_siat')
-                ->orWhereNotIn('estado_siat', ['VALIDADA', 'ANULADA', 'OBSERVADA']));
+            ->where(fn ($q) => $q
+                // Nunca llegó a generarse el CUF, o el envío en línea falló.
+                ->where(fn ($f) => $f
+                    ->where(fn ($c) => $c->whereNull('cuf')->orWhereIn('estado_siat', ElectronicInvoiceService::FAILED_SEND_STATES))
+                    ->where(fn ($e) => $e->whereNull('estado_siat')
+                        ->orWhereNotIn('estado_siat', ['VALIDADA', 'ANULADA', 'OBSERVADA'])))
+                // Rechazada sólo porque el documento se cargó como NIT: se reemite con CI.
+                ->orWhere(fn ($n) => $n->where('estado_siat', 'OBSERVADA')
+                    ->where('tipo_documento', 'NIT')
+                    ->where('siat_mensaje', 'like', '%'.self::INVALID_NIT_MESSAGE.'%')));
     }
 
     /**
@@ -696,7 +706,7 @@ class VentaController extends Controller
         if ($venta->estado_siat === 'ANULADA') {
             throw new \RuntimeException("La factura {$venta->numero} está anulada en Impuestos");
         }
-        if ($venta->estado_siat === 'OBSERVADA') {
+        if ($venta->estado_siat === 'OBSERVADA' && ! $this->rejectedForInvalidNit($venta)) {
             throw new \RuntimeException("Impuestos rechazó la factura {$venta->numero}: corrija el documento del cliente y reenvíela");
         }
         if ($venta->fecha->format('Y-m') !== now()->format('Y-m')) {
@@ -749,13 +759,40 @@ class VentaController extends Controller
 
         $venta = $invoices->issue($venta->fresh()->loadMissing('detalles'));
         $accepted = $venta->estado_siat === 'VALIDADA';
+        $switchedToCi = false;
+
+        // El SIN valida el NIT contra su padrón; el CI no lo valida. Si el cliente
+        // dio un carnet y el cajero lo cargó como NIT, la misma factura sale bien
+        // cambiando el tipo de documento, sin tocar el número.
+        if (! $accepted && $this->rejectedForInvalidNit($venta)) {
+            error_log('[VENTA][REEMISION] NIT rechazado por el padrón, se reemite como CI: '.json_encode([
+                'venta_id' => $venta->id, 'numero' => $venta->numero,
+                'numero_documento' => $venta->numero_documento, 'usuario_id' => $userId,
+            ], JSON_UNESCAPED_UNICODE));
+
+            $venta->update(['tipo_documento' => 'CI']);
+            $venta = $invoices->issue($venta->fresh()->loadMissing('detalles'));
+            $accepted = $venta->estado_siat === 'VALIDADA';
+            $switchedToCi = true;
+        }
 
         return [
             'emitida' => $accepted,
+            'documento_corregido' => $switchedToCi,
             'mensaje' => $accepted
-                ? "Factura {$venta->numero} emitida correctamente en Impuestos"
+                ? "Factura {$venta->numero} emitida correctamente en Impuestos".($switchedToCi ? ' con tipo CI: el NIT no está en el padrón del SIN' : '')
                 : "Impuestos no aceptó la factura {$venta->numero}: ".($venta->siat_mensaje ?: 'sin detalle'),
         ];
+    }
+
+    /**
+     * El SIN rechazó la factura sólo porque el documento se cargó como NIT y ese
+     * NIT no existe en su padrón. Es el caso típico del cliente que da su carnet.
+     */
+    private function rejectedForInvalidNit(Venta $venta): bool
+    {
+        return $venta->tipo_documento === 'NIT'
+            && str_contains(mb_strtoupper((string) $venta->siat_mensaje), self::INVALID_NIT_MESSAGE);
     }
 
     /** Devuelve al stock y a los lotes exactamente lo que consumió la venta. */
