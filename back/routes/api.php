@@ -52,6 +52,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/ventas', [VentaController::class, 'index']);
     Route::get('/clientes/buscar', [ClienteController::class, 'search']);
+    Route::get('/clientes', [ClienteController::class, 'index']);
     Route::post('/ventas', [VentaController::class, 'store']);
     Route::get('/ventas-resumen', [VentaController::class, 'summary']);
     Route::get('/ventas-reemitibles', [VentaController::class, 'reissuable']);
