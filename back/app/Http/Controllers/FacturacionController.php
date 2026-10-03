@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Facturacion;
+use App\Models\Venta;
 use App\Services\FacturacionImporter;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -47,6 +48,8 @@ class FacturacionController extends Controller
             'en_sistema' => (clone $query)->whereHas('venta')->count(),
             'sin_registrar' => (clone $query)->whereDoesntHave('venta')->count(),
             'importe_sin_registrar' => (clone $validas)->whereDoesntHave('venta')->sum('importe_total'),
+            // Lo inverso: ventas con CUF que el libro del SIAT no tiene.
+            'no_en_impuestos' => $this->missingInSiatQuery($request)->count(),
             // Meses con datos, para el selector del frontend.
             'meses' => Facturacion::selectRaw('SUBSTR(fecha_factura, 1, 7) as mes, COUNT(*) as cantidad')
                 ->groupBy('mes')->orderByDesc('mes')->get(),
@@ -58,6 +61,25 @@ class FacturacionController extends Controller
         $this->authorizeAction($request, 'Ver Facturación');
 
         return response()->json($facturacion->load('venta:id,numero,cuf,fecha,total,estado,estado_siat'));
+    }
+
+    /**
+     * Ventas del sistema que tienen CUF pero no aparecen en el libro del SIAT importado:
+     * Impuestos no las tiene registradas (o el libro de ese mes todavía no se subió).
+     */
+    public function missingInSiat(Request $request)
+    {
+        $this->authorizeAction($request, 'Ver Facturación');
+
+        $perPage = (int) $request->input('per_page', 20);
+
+        return response()->json(
+            $this->missingInSiatQuery($request)
+                ->select('id', 'numero', 'fecha', 'fecha_emision_siat', 'cuf', 'cliente_nombre', 'tipo_documento',
+                    'numero_documento', 'complemento', 'total', 'estado', 'estado_siat', 'online', 'siat_mensaje')
+                ->orderByDesc('fecha')
+                ->paginate(min(max($perPage, 1), 200))
+        );
     }
 
     public function import(Request $request, FacturacionImporter $importer)
@@ -108,6 +130,27 @@ class FacturacionController extends Controller
                     ->orWhere('cuf', 'like', $term)
                     ->orWhere('nit_ci_cliente', 'like', $term)
                     ->orWhere('razon_social', 'like', $term));
+            });
+    }
+
+    private function missingInSiatQuery(Request $request)
+    {
+        $month = $this->month($request);
+
+        return Venta::query()
+            ->whereNotNull('cuf')->where('cuf', '!=', '')
+            // La factura cuenta en el mes en que se emitió en el SIAT; si nunca llegó, en el de la venta.
+            ->whereRaw('COALESCE(fecha_emision_siat, fecha) BETWEEN ? AND ?', [
+                $month->copy()->startOfMonth()->toDateTimeString(), $month->copy()->endOfMonth()->toDateTimeString(),
+            ])
+            ->whereNotExists(fn ($sub) => $sub->selectRaw('1')->from('facturaciones')
+                ->whereColumn('facturaciones.cuf', 'ventas.cuf')->whereNull('facturaciones.deleted_at'))
+            ->when($request->filled('q'), function ($query) use ($request) {
+                $term = '%'.trim($request->input('q')).'%';
+                $query->where(fn ($sub) => $sub->where('numero', 'like', $term)
+                    ->orWhere('cuf', 'like', $term)
+                    ->orWhere('numero_documento', 'like', $term)
+                    ->orWhere('cliente_nombre', 'like', $term));
             });
     }
 

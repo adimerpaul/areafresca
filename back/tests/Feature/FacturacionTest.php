@@ -174,6 +174,28 @@ class FacturacionTest extends TestCase
         $this->assertEquals(68.33, $resumen->json('importe_sin_registrar'));
     }
 
+    public function test_it_lists_the_sales_with_cuf_that_the_siat_book_does_not_have(): void
+    {
+        $this->admin();
+        $sale = fn (string $numero, ?string $cuf, string $fecha) => Venta::create([
+            'numero' => $numero, 'usuario_nombre' => 'admin', 'subtotal' => 10, 'total' => 10,
+            'estado' => 'COMPLETADA', 'fecha' => $fecha, 'tipo_comprobante' => $cuf ? 'FACTURA' : 'RECIBO',
+            'estado_siat' => $cuf ? 'VALIDADA' : null, 'cuf' => $cuf,
+        ]);
+        $sale('V-1', 'CUF-1', '2026-08-10 10:00:00');   // está en el libro
+        $sale('V-2', 'CUF-2', '2026-08-11 10:00:00');   // falta en el libro
+        $sale('V-3', null, '2026-08-12 10:00:00');      // recibo: sin CUF, no cuenta
+        $sale('V-4', 'CUF-4', '2026-09-01 10:00:00');   // otro mes
+
+        $this->upload($this->xlsx([$this->row('CUF-1', '10/08/2026', '1', 10.00)]), 'archivoVentas.xlsx')->assertOk();
+
+        $this->getJson('/api/facturacion-faltantes?mes=2026-08')->assertOk()
+            ->assertJsonPath('total', 1)->assertJsonPath('data.0.numero', 'V-2');
+
+        $this->getJson('/api/facturacion-resumen?mes=2026-08')->assertOk()
+            ->assertJsonPath('no_en_impuestos', 1);
+    }
+
     public function test_importing_requires_its_own_permission(): void
     {
         $user = User::create(['name' => 'CONTADORA', 'username' => 'contadora', 'password' => bcrypt('123456')]);

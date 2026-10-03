@@ -27,26 +27,33 @@ const quantity = item => item.unidad === 'KG' ? Number(item.cantidad).toFixed(3)
 const invoiceNumber = sale => String(sale.id ?? sale.numero ?? '').replace(/^V-0*/, '')
 const cashier = sale => sale.usuario?.username || sale.usuario_nombre || ''
 
-function qrUrl (sale, company) {
+// t=1 es el formato rollo y t=2 el de media página del portal del SIAT.
+function siatUrl (cuf, numero, company, t = '1') {
   const base = company.siat_portal_url || 'https://siat.impuestos.gob.bo/'
   const url = new URL('consulta/QR', base.endsWith('/') ? base : `${base}/`)
-  url.search = new URLSearchParams({
-    nit: company.nit || '',
-    cuf: sale.cuf || '',
-    numero: invoiceNumber(sale),
-    t: '1',
-  }).toString()
+  url.search = new URLSearchParams({ nit: company.nit || '', cuf: cuf || '', numero: String(numero ?? ''), t }).toString()
   return url.toString()
 }
 
-export function openSiatInvoice (sale) {
+const qrUrl = (sale, company) => siatUrl(sale.cuf, invoiceNumber(sale), company)
+
+function openSiat (cuf, numero, t) {
   const company = companyData()
 
-  if (!company.nit || !sale.cuf) {
+  if (!company.nit || !cuf) {
     throw new Error('La factura no tiene NIT o CUF para consultarla en Impuestos')
   }
 
-  window.open(qrUrl(sale, company), '_blank', 'noopener,noreferrer')
+  window.open(siatUrl(cuf, numero, company, t), '_blank', 'noopener,noreferrer')
+}
+
+export function openSiatInvoice (sale, t = '1') {
+  openSiat(sale.cuf, invoiceNumber(sale), t)
+}
+
+/** Factura del libro de ventas del SIAT, que ya trae su propio número de factura. */
+export function openSiatBookInvoice (row, t = '2') {
+  openSiat(row.cuf, row.numero_factura, t)
 }
 
 function detailRows (sale) {
