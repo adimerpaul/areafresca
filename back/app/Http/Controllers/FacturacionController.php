@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Facturacion;
 use App\Models\Venta;
 use App\Services\FacturacionImporter;
+use App\Services\Siat\SiatService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use RuntimeException;
@@ -103,6 +104,42 @@ class FacturacionController extends Controller
         error_log('[FACTURACION][IMPORT] '.json_encode($result + ['usuario' => $request->user()->username]));
 
         return response()->json($result);
+    }
+
+    /**
+     * Anula en Impuestos una factura del libro que no tiene venta en el sistema
+     * (pestaña "En Impuestos, no en el sistema"). Va directo al SIN con el CUF:
+     * no hay stock ni lotes que devolver.
+     */
+    public function cancel(Request $request, Facturacion $facturacion, SiatService $siat)
+    {
+        $this->authorizeAction($request, 'Anular Facturación');
+        $data = $request->validate([
+            'codigo_motivo' => ['required', 'integer', 'in:'.implode(',', array_keys(SiatService::CANCELLATION_REASONS))],
+        ]);
+        abort_if($facturacion->estado !== 'VALIDA', 422, 'La factura ya está anulada en Impuestos');
+        // Las facturas con venta se anulan desde Ventas, que además devuelve el stock y los lotes.
+        $venta = $facturacion->venta()->first(['id', 'numero']);
+        abort_if($venta, 422, "Esta factura es de la venta {$venta?->numero}: anúlela desde Ventas para devolver el stock");
+
+        try {
+            $result = $siat->cancelCuf($facturacion->cuf, (int) $data['codigo_motivo']);
+        } catch (RuntimeException|\SoapFault $exception) {
+            return response()->json(['message' => 'No se pudo comunicar con Impuestos: '.$exception->getMessage()], 422);
+        }
+
+        error_log('[FACTURACION][ANULAR] '.json_encode([
+            'facturacion_id' => $facturacion->id, 'numero_factura' => $facturacion->numero_factura,
+            'codigo_motivo' => (int) $data['codigo_motivo'], 'usuario' => $request->user()->username,
+        ] + $result, JSON_UNESCAPED_UNICODE));
+
+        abort_unless($result['transaccion'], 422, $result['mensaje'] ?: 'Impuestos rechazó la anulación de la factura');
+        $facturacion->update(['estado' => 'ANULADA']);
+
+        return response()->json([
+            'facturacion' => $facturacion->fresh(),
+            'mensaje' => "Factura {$facturacion->numero_factura} anulada en Impuestos",
+        ]);
     }
 
     public function destroy(Request $request, Facturacion $facturacion)

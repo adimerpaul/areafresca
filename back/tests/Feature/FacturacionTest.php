@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Facturacion;
 use App\Models\User;
 use App\Models\Venta;
+use App\Services\Siat\SiatService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Testing\TestResponse;
@@ -194,6 +195,88 @@ class FacturacionTest extends TestCase
 
         $this->getJson('/api/facturacion-resumen?mes=2026-08')->assertOk()
             ->assertJsonPath('no_en_impuestos', 1);
+    }
+
+    public function test_reimporting_updates_the_invoices_that_changed_in_the_siat(): void
+    {
+        $this->admin();
+        $this->upload($this->xlsx([
+            $this->row('CUF-1', '31/08/2026', '9384', 52.55),
+            $this->row('CUF-2', '30/08/2026', '9382', 68.33),
+        ]), 'libro-1.xlsx')->assertOk()->assertJson(['insertados' => 2, 'actualizados' => 0]);
+
+        // Mismo archivo: nada cambia, nada se reescribe.
+        $this->upload($this->xlsx([
+            $this->row('CUF-1', '31/08/2026', '9384', 52.55),
+            $this->row('CUF-2', '30/08/2026', '9382', 68.33),
+        ]), 'libro-1.xlsx')->assertOk()->assertJson(['insertados' => 0, 'duplicados' => 2, 'actualizados' => 0]);
+
+        // Después de anularse en el SIAT, el libro trae la factura con otro estado.
+        $this->upload($this->xlsx([
+            $this->row('CUF-1', '31/08/2026', '9384', 52.55),
+            $this->row('CUF-2', '30/08/2026', '9382', 68.33, 'ANULADA'),
+        ]), 'libro-2.xlsx')->assertOk()->assertJson(['insertados' => 0, 'actualizados' => 1]);
+
+        $invoice = Facturacion::where('cuf', 'CUF-2')->first();
+        $this->assertSame('ANULADA', $invoice->estado);
+        $this->assertSame('libro-2.xlsx', $invoice->archivo_origen);
+        $this->assertSame('VALIDA', Facturacion::where('cuf', 'CUF-1')->value('estado'));
+    }
+
+    public function test_an_invoice_missing_in_the_system_is_cancelled_directly_in_the_siat(): void
+    {
+        $this->admin();
+        $this->upload($this->xlsx([$this->row('CUF-X', '30/08/2026', '9382', 68.33)]), 'libro.xlsx')->assertOk();
+        $invoice = Facturacion::first();
+
+        $this->mock(SiatService::class, fn ($mock) => $mock->shouldReceive('cancelCuf')->once()->with('CUF-X', 3)
+            ->andReturn(['transaccion' => true, 'codigo_estado' => 905, 'codigo_recepcion' => null, 'mensaje' => 'ANULACION CONFIRMADA']));
+
+        $this->putJson("/api/facturacion/{$invoice->id}/anular", ['codigo_motivo' => 3])->assertOk()
+            ->assertJsonPath('facturacion.estado', 'ANULADA');
+
+        // Ya anulada: no se vuelve a llamar al SIN.
+        $this->putJson("/api/facturacion/{$invoice->id}/anular", ['codigo_motivo' => 3])->assertStatus(422);
+    }
+
+    public function test_a_rejected_cancellation_leaves_the_invoice_valid(): void
+    {
+        $this->admin();
+        $this->upload($this->xlsx([$this->row('CUF-X', '30/08/2026', '9382', 68.33)]), 'libro.xlsx')->assertOk();
+        $invoice = Facturacion::first();
+
+        $this->mock(SiatService::class, fn ($mock) => $mock->shouldReceive('cancelCuf')->once()
+            ->andReturn(['transaccion' => false, 'codigo_estado' => 906, 'codigo_recepcion' => null, 'mensaje' => 'FUERA DE PLAZO']));
+
+        $this->putJson("/api/facturacion/{$invoice->id}/anular", ['codigo_motivo' => 1])->assertStatus(422)
+            ->assertJsonPath('message', 'FUERA DE PLAZO');
+        $this->assertSame('VALIDA', $invoice->fresh()->estado);
+    }
+
+    public function test_an_invoice_with_a_sale_must_be_cancelled_from_sales(): void
+    {
+        $this->admin();
+        Venta::create([
+            'numero' => 'V-00000001', 'usuario_nombre' => 'admin', 'subtotal' => 10, 'total' => 10,
+            'estado' => 'COMPLETADA', 'fecha' => '2026-08-30 10:00:00', 'tipo_comprobante' => 'FACTURA',
+            'estado_siat' => 'VALIDADA', 'cuf' => 'CUF-V',
+        ]);
+        $this->upload($this->xlsx([$this->row('CUF-V', '30/08/2026', '1', 10.00)]), 'libro.xlsx')->assertOk();
+        $this->mock(SiatService::class, fn ($mock) => $mock->shouldNotReceive('cancelCuf'));
+
+        $this->putJson('/api/facturacion/'.Facturacion::first()->id.'/anular', ['codigo_motivo' => 1])->assertStatus(422);
+        $this->putJson('/api/facturacion/'.Facturacion::first()->id.'/anular', ['codigo_motivo' => 9])->assertStatus(422);
+    }
+
+    public function test_cancelling_requires_its_own_permission(): void
+    {
+        $this->admin();
+        $this->upload($this->xlsx([$this->row('CUF-X', '30/08/2026', '9382', 68.33)]), 'libro.xlsx')->assertOk();
+        $user = User::create(['name' => 'CONTADORA', 'username' => 'contadora', 'password' => bcrypt('123456')]);
+        $user->givePermissionTo('Ver Facturación');
+        Sanctum::actingAs($user);
+
+        $this->putJson('/api/facturacion/'.Facturacion::first()->id.'/anular', ['codigo_motivo' => 1])->assertForbidden();
     }
 
     public function test_importing_requires_its_own_permission(): void

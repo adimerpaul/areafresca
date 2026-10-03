@@ -210,16 +210,23 @@ class SiatService
     public function cancelInvoice(Venta $sale, int $reason): array
     {
         abort_unless($sale->cuf, 422, 'La venta no tiene CUF para anular en SIAT');
+        $result = $this->cancelCuf($sale->cuf, $reason);
+        $sale->update([
+            'estado_siat' => $result['transaccion'] ? 'ANULADA' : 'OBSERVADA',
+            'siat_mensaje' => $result['mensaje'],
+        ]);
+
+        return $result;
+    }
+
+    /** Anula en el SIN una factura sólo por su CUF, exista o no una venta en el sistema. */
+    public function cancelCuf(string $cuf, int $reason): array
+    {
         [$cuis, $cufd] = $this->ensureCredentials();
         $response = $this->call('ServicioFacturacionCompraVenta', 'anulacionFactura', 'RespuestaServicioFacturacion', [
             'SolicitudServicioAnulacionFactura' => array_merge($this->invoiceRequest($cuis->codigo, $cufd->codigo), [
-                'codigoMotivo' => $reason, 'cuf' => $sale->cuf,
+                'codigoMotivo' => $reason, 'cuf' => $cuf,
             ]),
-        ]);
-        $success = (bool) ($response->transaccion ?? false);
-        $sale->update([
-            'estado_siat' => $success ? 'ANULADA' : 'OBSERVADA',
-            'siat_mensaje' => $this->responseDescription($response),
         ]);
 
         return $this->responseData($response);

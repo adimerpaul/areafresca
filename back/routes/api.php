@@ -74,6 +74,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/facturacion-faltantes', [FacturacionController::class, 'missingInSiat']);
     Route::post('/facturacion/importar', [FacturacionController::class, 'import']);
     Route::get('/facturacion/{facturacion}', [FacturacionController::class, 'show']);
+    Route::put('/facturacion/{facturacion}/anular', [FacturacionController::class, 'cancel']);
     Route::delete('/facturacion/{facturacion}', [FacturacionController::class, 'destroy']);
 
     Route::get('/compras', [CompraController::class, 'index']);

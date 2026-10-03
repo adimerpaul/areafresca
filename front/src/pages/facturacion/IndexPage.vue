@@ -47,11 +47,11 @@
         <template #body-cell-v_estado="p"><q-td :props="p"><q-badge :color="p.row.estado==='COMPLETADA'?'positive':'grey-6'" :label="p.row.estado"/></q-td></template>
         <template #body-cell-v_siat="p"><q-td :props="p"><q-badge :color="siatColor(p.row.estado_siat)" :label="p.row.estado_siat||'—'"/><q-tooltip v-if="p.row.siat_mensaje">{{p.row.siat_mensaje}}</q-tooltip></q-td></template>
         <template #body-cell-actions="p"><q-td :props="p">
-          <q-btn dense flat round size="sm" color="primary" icon="visibility" @click="viewInSiat(p.row)"><q-tooltip>Ver la factura en Impuestos</q-tooltip></q-btn>
-          <template v-if="tab!=='no_impuestos'">
-            <q-btn dense flat round size="sm" color="blue-grey" icon="info" @click="openDetail(p.row)"><q-tooltip>Ver detalle del libro</q-tooltip></q-btn>
-            <q-btn v-if="can('Eliminar Facturación')" dense flat round size="sm" color="negative" icon="delete" @click="remove(p.row)"><q-tooltip>Eliminar registro</q-tooltip></q-btn>
-          </template>
+          <q-btn-dropdown dense flat round size="sm" color="primary" icon="more_vert" dropdown-icon="none"><q-list dense style="min-width:200px">
+            <q-item clickable v-close-popup @click="viewInSiat(p.row)"><q-item-section avatar><q-icon name="visibility" color="primary"/></q-item-section><q-item-section>Ver en Impuestos</q-item-section></q-item>
+            <q-item v-if="tab!=='no_impuestos'" clickable v-close-popup @click="openDetail(p.row)"><q-item-section avatar><q-icon name="info" color="blue-grey"/></q-item-section><q-item-section>Detalle del libro</q-item-section></q-item>
+            <template v-if="cancellable(p.row)"><q-separator/><q-item clickable v-close-popup class="text-deep-orange" @click="askCancel(p.row)"><q-item-section avatar><q-icon name="block"/></q-item-section><q-item-section>Anular en Impuestos</q-item-section></q-item></template>
+          </q-list></q-btn-dropdown>
         </q-td></template>
         <template #no-data><div class="full-width text-center text-grey-6 q-py-lg"><q-icon name="inbox" size="36px"/><div>{{tab==='no_impuestos'?`Todas las ventas con CUF de ${monthLabel(filters.mes)} están en el libro del SIAT`:`No hay facturas en ${monthLabel(filters.mes)}`}}</div></div></template>
       </q-table>
@@ -62,15 +62,22 @@
         <q-card-section class="row items-center q-py-sm bg-primary text-white"><q-avatar color="white" text-color="primary" icon="upload_file" size="32px"/><div class="q-ml-sm"><div class="text-subtitle1 text-weight-bold">Importar libro de ventas</div><div class="text-caption">ZIP o XLSX descargado del SIAT</div></div><q-space/><q-btn flat round dense icon="close" color="white" v-close-popup/></q-card-section>
         <q-card-section class="q-pa-sm">
           <q-file v-model="file" dense outlined accept=".zip,.xlsx,.xls" label="Seleccione el archivo (.zip o .xlsx)" clearable><template #prepend><q-icon name="attach_file"/></template></q-file>
-          <div class="text-caption text-grey-7 q-mt-sm">Las facturas cuyo <b>código de autorización (CUF)</b> ya esté registrado no se vuelven a insertar, así que puede subir el mismo archivo varias veces sin duplicar nada.</div>
+          <div class="text-caption text-grey-7 q-mt-sm">Las facturas cuyo <b>código de autorización (CUF)</b> ya esté registrado no se duplican: se actualizan con lo que trae el archivo (por ejemplo, si se anularon en el SIAT). Puede subir el mismo archivo varias veces.</div>
           <div v-if="result" class="q-mt-sm q-pa-sm rounded-borders bg-green-1 text-green-10 text-caption">
-            Leídas <b>{{result.total}}</b> · insertadas <b>{{result.insertados}}</b> · omitidas por CUF repetido <b>{{result.duplicados}}</b><span v-if="result.meses?.length"> · meses: <b>{{result.meses.join(', ')}}</b></span>
+            Leídas <b>{{result.total}}</b> · insertadas <b>{{result.insertados}}</b> · ya existentes <b>{{result.duplicados}}</b> · actualizadas <b>{{result.actualizados||0}}</b><span v-if="result.meses?.length"> · meses: <b>{{result.meses.join(', ')}}</b></span>
           </div>
         </q-card-section>
         <q-card-actions align="right" class="q-pa-sm"><q-btn flat dense no-caps label="Cerrar" v-close-popup/><q-btn unelevated dense no-caps color="primary" icon="cloud_upload" label="Importar" :disable="!file" :loading="importing" @click="importFile"/></q-card-actions>
       </q-card>
     </q-dialog>
 
+    <q-dialog v-model="cancelDialog">
+      <q-card style="width:520px;max-width:94vw">
+        <q-card-section class="row items-center q-py-sm bg-deep-orange text-white"><q-avatar color="white" text-color="deep-orange" icon="block" size="32px"/><div class="q-ml-sm"><div class="text-subtitle1 text-weight-bold">Anular en Impuestos</div><div class="text-caption">Factura {{toCancel?.numero_factura}} · {{toCancel?.razon_social||'sin nombre'}} · Bs {{money(toCancel?.importe_total)}}</div></div><q-space/><q-btn flat round dense icon="close" color="white" v-close-popup/></q-card-section>
+        <q-banner dense class="bg-orange-1 text-orange-10"><q-icon name="info" class="q-mr-xs"/>Esta factura no tiene venta en el sistema: se anula directamente en el SIN con su CUF. Elija el motivo.</q-banner>
+        <q-list separator><q-item v-for="reason in CANCEL_REASONS" :key="reason.codigo" clickable :disable="cancelling" @click="confirmCancel(reason)"><q-item-section avatar><q-avatar color="deep-orange" text-color="white" size="28px">{{reason.codigo}}</q-avatar></q-item-section><q-item-section>{{reason.descripcion}}</q-item-section><q-item-section side><q-spinner v-if="cancelling&&cancelReason===reason.codigo" color="deep-orange"/><q-icon v-else name="chevron_right"/></q-item-section></q-item></q-list>
+      </q-card>
+    </q-dialog>
     <q-dialog v-model="detailDialog">
       <q-card style="width:620px;max-width:94vw">
         <q-card-section class="row items-center q-py-sm bg-primary text-white"><q-avatar color="white" text-color="primary" icon="receipt_long" size="32px"/><div class="q-ml-sm"><div class="text-subtitle1 text-weight-bold">Factura {{detail.numero_factura}}</div><div class="text-caption">{{formatDate(detail.fecha_factura)}} · {{detail.razon_social}}</div></div><q-space/><q-btn flat round dense icon="close" color="white" v-close-popup/></q-card-section>
@@ -170,17 +177,25 @@ async function importFile(){
   try{
     const {data}=await proxy.$axios.post('/facturacion/importar',form,{headers:{'Content-Type':'multipart/form-data'}})
     result.value=data;file.value=null
-    proxy.$alert.success(`${data.insertados} facturas importadas`,`${data.duplicados} omitidas porque el CUF ya existía`)
+    proxy.$alert.success(`${data.insertados} facturas importadas`,`${data.actualizados||0} actualizadas (estado o importes cambiaron en el SIAT)`)
     // Salta al mes del archivo para que el usuario vea de inmediato lo que subió.
     if(data.meses?.length) filters.mes=data.meses[data.meses.length-1]
     reload()
   }catch(e){proxy.$alert.error(e.response?.data?.message||'No se pudo importar el archivo')}
   finally{importing.value=false}
 }
-function remove(row){
-  proxy.$alert.dialog(`¿Eliminar la factura ${row.numero_factura}?`).onOk(async()=>{
-    try{await proxy.$axios.delete(`/facturacion/${row.id}`);proxy.$alert.success('Factura eliminada');load()}
-    catch(e){proxy.$alert.error(e.response?.data?.message||'No se pudo eliminar la factura')}
+// Mismos 4 motivos que SiatService::CANCELLATION_REASONS.
+const CANCEL_REASONS=[{codigo:1,descripcion:'FACTURA MAL EMITIDA'},{codigo:2,descripcion:'NOTA DE CRÉDITO-DÉBITO MAL EMITIDA'},{codigo:3,descripcion:'DATOS DE EMISIÓN INCORRECTOS'},{codigo:4,descripcion:'FACTURA O NOTA DE CRÉDITO-DÉBITO DEVUELTA'}]
+const cancelDialog=ref(false),cancelling=ref(false),cancelReason=ref(null),toCancel=ref(null)
+// Sólo en la pestaña "En Impuestos, no en el sistema": las que tienen venta se anulan desde Ventas (devuelve stock).
+const cancellable=row=>tab.value==='sin_registrar'&&!row.venta&&row.estado==='VALIDA'&&can('Anular Facturación')
+function askCancel(row){toCancel.value=row;cancelReason.value=null;cancelDialog.value=true}
+function confirmCancel(reason){const row=toCancel.value
+  proxy.$alert.dialog('Anular en Impuestos',`¿Anular la factura ${row.numero_factura} de ${row.razon_social||'sin nombre'} por Bs ${money(row.importe_total)}? Motivo: ${reason.descripcion}. Esto no se puede deshacer.`).onOk(async()=>{
+    cancelling.value=true;cancelReason.value=reason.codigo
+    try{const {data}=await proxy.$axios.put(`/facturacion/${row.id}/anular`,{codigo_motivo:reason.codigo});cancelDialog.value=false;proxy.$alert.success(data.mensaje);load()}
+    catch(e){proxy.$alert.error(e.response?.data?.message||'No se pudo anular la factura en Impuestos')}
+    finally{cancelling.value=false;cancelReason.value=null}
   })
 }
 onMounted(load)

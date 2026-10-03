@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Facturacion;
 use Carbon\Carbon;
+use Illuminate\Support\Arr;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
@@ -14,9 +15,10 @@ use ZipArchive;
 /**
  * Importa el libro de ventas del SIAT (XLSX) a la tabla `facturaciones`.
  *
- * El CUF manda: si ya existe una fila con ese código de autorización —aunque esté
- * eliminada— la fila se cuenta como duplicada y no se inserta ni se actualiza.
- * Así el mismo archivo se puede reimportar sin miedo y meses solapados no chocan.
+ * El CUF manda: si ya existe una fila con ese código de autorización no se inserta otra,
+ * pero se actualizan sus datos (estado, consolidación, importes) con lo que trae el
+ * archivo, porque el SIAT cambia el estado cuando una factura se anula. Las filas
+ * eliminadas a propósito no se tocan ni se resucitan.
  *
  * El archivo se lee por bloques de filas (PhpSpreadsheet guarda cada celda como
  * objeto y un libro mensual completo agota los 128 MB por defecto de PHP), así que
@@ -139,6 +141,7 @@ class FacturacionImporter
         $months = [];
         $total = 0;
         $inserted = 0;
+        $updated = 0;
         $pending = [];
         $headersChecked = false;
 
@@ -178,7 +181,9 @@ class FacturacionImporter
                 $pending[$cuf] = $this->mapRow($row, $cuf, $date, $fileName, $userId);
 
                 if (count($pending) >= self::INSERT_CHUNK) {
-                    $inserted += $this->insertNew($pending);
+                    [$new, $changed] = $this->insertNew($pending);
+                    $inserted += $new;
+                    $updated += $changed;
                     $pending = [];
                 }
             }
@@ -191,7 +196,9 @@ class FacturacionImporter
         }
 
         if ($pending !== []) {
-            $inserted += $this->insertNew($pending);
+            [$new, $changed] = $this->insertNew($pending);
+            $inserted += $new;
+            $updated += $changed;
         }
 
         $months = array_keys($months);
@@ -201,25 +208,41 @@ class FacturacionImporter
             'total' => $total,
             'insertados' => $inserted,
             'duplicados' => $total - $inserted,
+            'actualizados' => $updated,
             'meses' => $months,
         ];
     }
 
     /**
-     * Inserta sólo los CUF que todavía no están en la base.
+     * Inserta los CUF nuevos y actualiza los que ya estaban si el archivo trae otros datos.
      *
-     * withTrashed: un CUF borrado sigue ocupando el índice único, así que también se salta.
+     * withTrashed: un CUF borrado sigue ocupando el índice único, así que se salta sin tocarlo.
+     *
+     * @return array{0:int, 1:int} [insertadas, actualizadas]
      */
-    private function insertNew(array $rows): int
+    private function insertNew(array $rows): array
     {
-        $existing = Facturacion::withTrashed()->whereIn('cuf', array_keys($rows))->pluck('cuf')->all();
-        $new = array_values(array_diff_key($rows, array_flip($existing)));
-        if ($new === []) {
-            return 0;
+        $existing = Facturacion::withTrashed()->whereIn('cuf', array_keys($rows))->get()->keyBy('cuf');
+        $new = array_values(array_diff_key($rows, $existing->all()));
+        if ($new !== []) {
+            Facturacion::insert($new);
         }
-        Facturacion::insert($new);
 
-        return count($new);
+        $updated = 0;
+        foreach ($existing as $cuf => $invoice) {
+            if ($invoice->trashed()) {
+                continue;
+            }
+            // Se conserva quién la importó primero; el resto refleja el último archivo del SIAT.
+            $invoice->fill(Arr::except($rows[$cuf], ['user_id', 'archivo_origen', 'created_at', 'updated_at']));
+            if ($invoice->isDirty()) {
+                $invoice->archivo_origen = $rows[$cuf]['archivo_origen'];
+                $invoice->save();
+                $updated++;
+            }
+        }
+
+        return [count($new), $updated];
     }
 
     private function mapRow(array $row, string $cuf, Carbon $date, string $fileName, ?int $userId): array
